@@ -3,16 +3,23 @@ import type { AppMode } from '../../types'
 interface ControlDockProps {
   mode: AppMode
   onToggleMode: () => void
+  onTapPet?: () => void
 }
 
-export const ControlDock = ({ mode, onToggleMode }: ControlDockProps) => {
+export const ControlDock = ({ mode, onToggleMode, onTapPet }: ControlDockProps) => {
   return (
     <footer className="app-dock">
       <nav className="dock-container" aria-label="Pet controls">
-        <div className="dock-item-placeholder">
-          <span>🐾</span>
-          <span>Interactions</span>
-        </div>
+        <button
+          type="button"
+          onClick={onTapPet}
+          className="dock-item-placeholder"
+          style={{ background: 'transparent', border: 'none', cursor: 'pointer' }}
+          aria-label="Interact with Pikachu"
+        >
+          <span>⚡</span>
+          <span>Tap Pikachu</span>
+        </button>
         <button
           type="button"
           onClick={onToggleMode}

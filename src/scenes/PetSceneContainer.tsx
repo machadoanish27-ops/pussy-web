@@ -1,38 +1,60 @@
+import { Suspense } from 'react'
+import { Canvas } from '@react-three/fiber'
+import { PetScene } from './PetScene.tsx'
 import type { AppMode } from '../types'
+import type { PetAnimationController, PetInteractionController } from '../systems/pet'
 
 interface PetSceneContainerProps {
   mode: AppMode
+  animationController?: PetAnimationController
+  interactionController?: PetInteractionController
+  onTap?: () => void
 }
 
-export const PetSceneContainer = ({ mode }: PetSceneContainerProps) => {
+const LoadingFallback = () => (
+  <div className="scene-foundation-placeholder">
+    <div className="foundation-icon-circle">
+      <span style={{ fontSize: '24px' }}>⚡</span>
+    </div>
+    <span className="foundation-tag">Loading 3D Pet...</span>
+  </div>
+)
+
+/**
+ * PetSceneContainer
+ *
+ * Fullscreen viewport host for the Three.js / React Three Fiber canvas.
+ * Manages responsive camera positioning, shadow maps, and mobile DPR limits.
+ */
+export const PetSceneContainer = ({
+  animationController,
+  interactionController,
+  onTap,
+}: PetSceneContainerProps) => {
   return (
     <main className="scene-viewport" aria-label="3D pet viewport">
-      <div className="scene-foundation-placeholder">
-        <div className="foundation-icon-circle">
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            strokeWidth="2"
-            strokeLinecap="round"
-            strokeLinejoin="round"
-          >
-            {/* Minimal Cat Face Icon */}
-            <path d="M12 5c-4.418 0-8 3.582-8 8 0 2.21 1.79 4 4 4h8c2.21 0 4-1.79 4-4 0-4.418-3.582-8-8-8z" />
-            <path d="M4 10l-2-6 6 2" />
-            <path d="M20 10l2-6-6 2" />
-            <circle cx="9" cy="13" r="1" fill="currentColor" />
-            <circle cx="15" cy="13" r="1" fill="currentColor" />
-          </svg>
-        </div>
-        <span className="foundation-tag">Phase 1 • Foundation</span>
-        <h1 className="foundation-title">PUSSY Virtual Pet</h1>
-        <p className="foundation-subtitle">
-          {mode === 'ar'
-            ? 'AR camera surface tracking ready to host 3D scene in Phase 2.'
-            : 'Full-screen mobile viewport ready to host 3D cat scene in Phase 2.'}
-        </p>
-      </div>
+      <Suspense fallback={<LoadingFallback />}>
+        <Canvas
+          shadows
+          dpr={[1, 2]}
+          gl={{
+            antialias: true,
+            alpha: true,
+            powerPreference: 'high-performance',
+          }}
+          camera={{
+            position: [0, 0.45, 2.8],
+            fov: 42,
+          }}
+          style={{ width: '100%', height: '100%' }}
+        >
+          <PetScene
+            animationController={animationController}
+            interactionController={interactionController}
+            onTap={onTap}
+          />
+        </Canvas>
+      </Suspense>
     </main>
   )
 }

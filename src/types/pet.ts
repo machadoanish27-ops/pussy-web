@@ -4,18 +4,22 @@
 
 export type AppMode = 'normal' | 'ar'
 
-export type PetBehaviorState =
-  | 'idle'
-  | 'blinking'
-  | 'breathing'
-  | 'happy'
-  | 'hit'
-  | 'fallen'
-  | 'recovering'
-  | 'eating'
-  | 'listening'
-  | 'repeating'
-  | 'playing'
+/**
+ * Standard Pet State enumeration matching the 12-phase roadmap state machine:
+ * IDLE, TALKING, PETTING, HAPPY, HIT, FALLING, LYING, RECOVERING, EATING, DRINKING, SOCCER
+ */
+export type PetState =
+  | 'IDLE'
+  | 'TALKING'
+  | 'PETTING'
+  | 'HAPPY'
+  | 'HIT'
+  | 'FALLING'
+  | 'LYING'
+  | 'RECOVERING'
+  | 'EATING'
+  | 'DRINKING'
+  | 'SOCCER'
 
 export interface PetStats {
   hunger: number
