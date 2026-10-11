@@ -1,65 +1,70 @@
 import { useRef, useEffect } from 'react'
 import { useFrame } from '@react-three/fiber'
 import { useGLTF } from '@react-three/drei'
-import type * as THREE from 'three'
-import type { PetInteractionController } from '../../systems/pet'
+import * as THREE from 'three'
+import type { PetState } from '../../types'
+import type { ProceduralAnimator } from '../../systems/pet/ProceduralAnimator.ts'
 
 interface PikachuModelProps {
-  interactionController?: PetInteractionController
+  state: PetState
+  animator: ProceduralAnimator
+  voiceVolume?: number
   onTap?: () => void
 }
 
 /**
  * PikachuModel
  *
- * Loads public/models/pikachu.glb.
- * Ensures shadows are cast/received on all skinned meshes.
- * Accommodates the rigged skeleton while gracefully holding a static IDLE pose (0 clips in GLB).
- * Connects to PetInteractionController to respond to touch/pointer interaction with a playful bounce.
+ * Renders the 3D Pikachu GLB model.
+ * Connects the 49-bone skeleton and root group to the ProceduralAnimator,
+ * driving living idle behavior, talking reactions, happy petting,
+ * and the complete P0 Hit -> Fall -> Lie -> Stand -> Recover cycle.
  */
-export const PikachuModel = ({ interactionController, onTap }: PikachuModelProps) => {
-  const modelRef = useRef<THREE.Group>(null)
+export const PikachuModel = ({
+  state,
+  animator,
+  voiceVolume = 0,
+  onTap,
+}: PikachuModelProps) => {
+  const rootGroupRef = useRef<THREE.Group>(null)
   const { scene } = useGLTF('/models/pikachu.glb')
+  const elapsedTimeRef = useRef(0)
 
+  // Configure shadows and bind skeleton to procedural animator
   useEffect(() => {
     scene.traverse((node) => {
-      // Configure mesh shadow rendering
       const mesh = node as THREE.Mesh
       if (mesh.isMesh) {
         mesh.castShadow = true
         mesh.receiveShadow = true
       }
     })
-  }, [scene])
+    animator.bindModel(scene)
+  }, [scene, animator])
 
-  useFrame(() => {
-    if (!modelRef.current) return
+  useFrame((_, delta) => {
+    if (!rootGroupRef.current) return
+    elapsedTimeRef.current += delta
 
-    const baseScale = 0.044
-    if (interactionController) {
-      const reaction = interactionController.getVisualReaction()
-      modelRef.current.scale.set(
-        baseScale * reaction.scaleModifier[0],
-        baseScale * reaction.scaleModifier[1],
-        baseScale * reaction.scaleModifier[2]
-      )
-      modelRef.current.rotation.y = reaction.rotationNudge[1]
-    } else {
-      modelRef.current.scale.set(baseScale, baseScale, baseScale)
-      modelRef.current.rotation.y = 0
-    }
+    animator.update(
+      rootGroupRef.current,
+      state,
+      delta,
+      elapsedTimeRef.current,
+      voiceVolume
+    )
   })
 
   return (
     <group
+      ref={rootGroupRef}
       position={[0, -0.7, 0]}
       onPointerDown={(e) => {
         e.stopPropagation()
-        interactionController?.handleTap()
         onTap?.()
       }}
     >
-      <primitive ref={modelRef} object={scene} />
+      <primitive object={scene} />
     </group>
   )
 }

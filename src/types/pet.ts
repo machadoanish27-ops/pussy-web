@@ -4,15 +4,24 @@
 
 export type AppMode = 'normal' | 'ar'
 
+export type ARModeState =
+  | 'inactive'
+  | 'detecting'
+  | 'webxr'
+  | 'camera_fallback'
+  | 'unsupported'
+  | 'denied'
+
 /**
- * Standard Pet State enumeration matching the 12-phase roadmap state machine:
- * IDLE, TALKING, PETTING, HAPPY, HIT, FALLING, LYING, RECOVERING, EATING, DRINKING, SOCCER
+ * Pet State Machine enumeration matching the final master execution specification:
+ * IDLE, TALKING, PETTING, HAPPY, ANGRY, HIT, FALLING, LYING, RECOVERING, EATING, DRINKING, SOCCER, SLEEPING
  */
 export type PetState =
   | 'IDLE'
   | 'TALKING'
   | 'PETTING'
   | 'HAPPY'
+  | 'ANGRY'
   | 'HIT'
   | 'FALLING'
   | 'LYING'
@@ -20,6 +29,7 @@ export type PetState =
   | 'EATING'
   | 'DRINKING'
   | 'SOCCER'
+  | 'SLEEPING'
 
 export interface PetStats {
   hunger: number
@@ -29,6 +39,10 @@ export interface PetStats {
   coins: number
 }
 
+export type FoodType = 'milk' | 'fish' | null
+
+export type MiniGameMode = 'none' | 'soccer'
+
 export type InteractionType =
   | 'touch'
   | 'pet'
@@ -36,3 +50,4 @@ export type InteractionType =
   | 'feed_milk'
   | 'feed_fish'
   | 'voice'
+  | 'soccer'
