@@ -14,6 +14,9 @@ interface PikachuModelProps {
   rotationY?: number
   scale?: number
   onHitLocation?: (location: HitLocation) => void
+  onPetStart?: () => void
+  onPetMove?: (yFactor: number) => void
+  onPetEnd?: () => void
   onPetSwipe?: () => void
   onTap?: () => void
 }
@@ -26,7 +29,7 @@ interface PikachuModelProps {
  * Inner group is driven by ProceduralAnimator (living idle, facial blinking, mouth sync,
  * location-aware cartoon reactions, and P0 Hit -> Fall -> Lie -> Stand -> Recover sequence).
  *
- * Handles location-aware hit detection & vertical swipe gesture recognition for petting.
+ * Handles location-aware hit detection & contact-based continuous petting sessions.
  */
 export const PikachuModel = ({
   state,
@@ -36,6 +39,9 @@ export const PikachuModel = ({
   rotationY = 0,
   scale = 0.034,
   onHitLocation,
+  onPetStart,
+  onPetMove,
+  onPetEnd,
   onPetSwipe,
   onTap,
 }: PikachuModelProps) => {
@@ -45,6 +51,7 @@ export const PikachuModel = ({
 
   // Pointer gesture tracking refs
   const pointerStartRef = useRef<{
+    pointerId: number
     x: number
     y: number
     time: number
@@ -52,8 +59,8 @@ export const PikachuModel = ({
     lastY: number
     lastDir: number
     reversals: number
-    isPetting: boolean
-    petSwipeTriggered: boolean
+    isPettingSession: boolean
+    hasStartedPetting: boolean
   } | null>(null)
 
   // Configure shadows and bind skeleton to procedural animator
@@ -121,8 +128,19 @@ export const PikachuModel = ({
           // Synchronously unlock/resume Web Audio context on user gesture for iOS Safari
           SoundEffects.ensureAudioUnlocked()
 
+          // Capture pointer to track continuous multi-stroke gestures across screen
+          const nativeTarget = e.nativeEvent?.target as HTMLElement | undefined
+          if (nativeTarget?.setPointerCapture && typeof e.pointerId === 'number') {
+            try {
+              nativeTarget.setPointerCapture(e.pointerId)
+            } catch {
+              // Graceful fallback if target doesn't allow pointer capture
+            }
+          }
+
           const loc = classifyHitLocation(e.object.name, e.point)
           pointerStartRef.current = {
+            pointerId: e.pointerId,
             x: e.clientX,
             y: e.clientY,
             time: Date.now(),
@@ -130,8 +148,8 @@ export const PikachuModel = ({
             lastY: e.clientY,
             lastDir: 0,
             reversals: 0,
-            isPetting: false,
-            petSwipeTriggered: false,
+            isPettingSession: false,
+            hasStartedPetting: false,
           }
         }}
         onPointerMove={(e) => {
@@ -140,37 +158,34 @@ export const PikachuModel = ({
 
           const tracker = pointerStartRef.current
           const totalDy = e.clientY - tracker.y
+          const totalDist = Math.hypot(e.clientX - tracker.x, e.clientY - tracker.y)
           const dy = e.clientY - tracker.lastY
 
-          // 1. Natural top-to-bottom sliding stroke (> 20px downward)
-          if (totalDy > 20 && !tracker.isPetting) {
-            tracker.isPetting = true
-            if (!tracker.petSwipeTriggered) {
-              tracker.petSwipeTriggered = true
+          // Continuous Petting Session Activation:
+          // Any deliberate stroke (> 10px movement or vertical shift > 6px) starts the petting session.
+          if (!tracker.isPettingSession && (totalDist > 10 || Math.abs(totalDy) > 6)) {
+            tracker.isPettingSession = true
+            if (!tracker.hasStartedPetting) {
+              tracker.hasStartedPetting = true
+              onPetStart?.()
               onPetSwipe?.()
             }
-            const yFactor = THREE.MathUtils.clamp(totalDy / 80, -1, 1)
-            animator.setPettingFollow(yFactor, true)
           }
 
-          // 2. Continuous stroke & reversal detection (rubbing up/down)
-          if (Math.abs(dy) > 10) {
+          // Direction reversals / rubbing up and down
+          if (Math.abs(dy) > 6) {
             const currentDir = dy > 0 ? 1 : -1
             if (tracker.lastDir !== 0 && tracker.lastDir !== currentDir) {
               tracker.reversals++
             }
             tracker.lastDir = currentDir
             tracker.lastY = e.clientY
+          }
 
-            if (tracker.reversals >= 2) {
-              tracker.isPetting = true
-              if (!tracker.petSwipeTriggered) {
-                tracker.petSwipeTriggered = true
-                onPetSwipe?.()
-              }
-              const yFactor = THREE.MathUtils.clamp(dy / 40, -1, 1)
-              animator.setPettingFollow(yFactor, true)
-            }
+          if (tracker.isPettingSession) {
+            const yFactor = THREE.MathUtils.clamp(dy / 25, -1, 1)
+            animator.setPettingFollow(yFactor, true)
+            onPetMove?.(yFactor)
           }
         }}
         onPointerUp={(e) => {
@@ -178,27 +193,60 @@ export const PikachuModel = ({
           e.stopPropagation()
 
           const tracker = pointerStartRef.current
-          const wasPetting = tracker.isPetting
+          const wasPetting = tracker.isPettingSession
           const dist = Math.hypot(
             e.clientX - tracker.x,
             e.clientY - tracker.y
           )
           const duration = Date.now() - tracker.time
+
+          // Release pointer capture if active
+          const nativeTarget = e.nativeEvent?.target as HTMLElement | undefined
+          if (nativeTarget?.releasePointerCapture && typeof tracker.pointerId === 'number') {
+            try {
+              nativeTarget.releasePointerCapture(tracker.pointerId)
+            } catch {
+              // Ignore release errors
+            }
+          }
+
           pointerStartRef.current = null
           animator.setPettingFollow(0, false)
 
-          // If not a petting swipe and tap was crisp, trigger deliberate location hit!
-          if (!wasPetting && dist < 18 && duration < 380) {
+          if (wasPetting) {
+            // End continuous petting session cleanly
+            onPetEnd?.()
+          } else if (dist < 18 && duration < 280) {
+            // Crisp short tap -> deliberate location hit!
             if (onHitLocation) {
               onHitLocation(tracker.location)
             } else {
               onTap?.()
             }
+          } else {
+            // Finger was held without swiping widely
+            onPetEnd?.()
           }
         }}
         onPointerCancel={() => {
+          if (!pointerStartRef.current) return
+          const tracker = pointerStartRef.current
+          const wasPetting = tracker.isPettingSession
+
+          const nativeTarget = (window.document?.body) as HTMLElement | undefined
+          if (nativeTarget?.releasePointerCapture && typeof tracker.pointerId === 'number') {
+            try {
+              nativeTarget.releasePointerCapture(tracker.pointerId)
+            } catch {
+              // Ignore release errors
+            }
+          }
+
           pointerStartRef.current = null
           animator.setPettingFollow(0, false)
+          if (wasPetting) {
+            onPetEnd?.()
+          }
         }}
       >
         {/* Generous touch proxy mesh enclosing Pikachu's head and body */}

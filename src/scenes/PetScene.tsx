@@ -24,6 +24,9 @@ interface PetSceneProps {
   isAR: boolean
   isPlaced: boolean
   onHitLocation?: (location: HitLocation) => void
+  onPetStart?: () => void
+  onPetMove?: (yFactor: number) => void
+  onPetEnd?: () => void
   onPetSwipe?: () => void
   onTapPet?: () => void
   onPlaceReticle?: () => void
@@ -52,6 +55,9 @@ export const PetScene = ({
   isAR,
   isPlaced,
   onHitLocation,
+  onPetStart,
+  onPetMove,
+  onPetEnd,
   onPetSwipe,
   onTapPet,
   onPlaceReticle,
@@ -95,6 +101,9 @@ export const PetScene = ({
         rotationY={petRotationY}
         scale={petScale}
         onHitLocation={onHitLocation}
+        onPetStart={onPetStart}
+        onPetMove={onPetMove}
+        onPetEnd={onPetEnd}
         onPetSwipe={onPetSwipe}
         onTap={onTapPet}
       />

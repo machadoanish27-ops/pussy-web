@@ -19,6 +19,9 @@ interface PetSceneContainerProps {
   cameraStream: MediaStream | null
   damageEffects?: ActiveDamageEffect[]
   onHitLocation?: (location: HitLocation) => void
+  onPetStart?: () => void
+  onPetMove?: (yFactor: number) => void
+  onPetEnd?: () => void
   onPetSwipe?: () => void
   onTapPet?: () => void
   onScoreSoccerGoal?: () => void
@@ -104,6 +107,9 @@ export const PetSceneContainer = ({
   cameraStream,
   damageEffects = [],
   onHitLocation,
+  onPetStart,
+  onPetMove,
+  onPetEnd,
   onPetSwipe,
   onTapPet,
   onScoreSoccerGoal,
@@ -320,6 +326,9 @@ export const PetSceneContainer = ({
             isAR={mode === 'ar'}
             isPlaced={isPlaced}
             onHitLocation={onHitLocation}
+            onPetStart={onPetStart}
+            onPetMove={onPetMove}
+            onPetEnd={onPetEnd}
             onPetSwipe={onPetSwipe}
             onTapPet={onTapPet}
             onPlaceReticle={() => setIsPlaced(true)}

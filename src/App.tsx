@@ -47,9 +47,9 @@ export function App() {
   const hitComboRef = useRef(0)
   const consecutiveHitCountRef = useRef(0)
   const lastHitTimeRef = useRef(0)
-  const lastPetTimeRef = useRef(0)
-  const lastPetVocalTimeRef = useRef(0)
-  const hasPettedOnceRef = useRef(false)
+  const petVocalTimerRef = useRef<number | null>(null)
+  const triggerPetVocalRef = useRef<() => void>(() => {})
+  const isPettingActiveRef = useRef<boolean>(false)
   const lastInteractionTimeRef = useRef(0)
   const hitCountsByLocationRef = useRef<Record<HitLocation, number>>({
     HEAD: 0,
@@ -143,6 +143,10 @@ export function App() {
   useEffect(() => {
     return () => {
       voiceRepeater.stop()
+      if (petVocalTimerRef.current !== null) {
+        clearTimeout(petVocalTimerRef.current)
+        petVocalTimerRef.current = null
+      }
       if (cameraStream) {
         cameraStream.getTracks().forEach((t) => t.stop())
       }
@@ -274,51 +278,116 @@ export function App() {
     [stateMachine, statsManager, proceduralAnimator, spawnDamageEffect]
   )
 
-  /** Continuous Vertical Petting Gesture & Guaranteed Pika Pika Vocalization */
-  const handlePetSwipe = useCallback(() => {
+  /** Maintain recurring pet vocal trigger via ref to avoid circular callback declaration */
+  useEffect(() => {
+    triggerPetVocalRef.current = () => {
+      if (!isPettingActiveRef.current) return
+      if (stateMachine.isLocked()) return
+      const isVoiceActive =
+        voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
+      if (isVoiceActive) return
+
+      // Play random synthesized vocal reaction ("Pika Pika", "Pika!", "Pikachu!")
+      SoundEffects.playRandomPetVocal()
+      spawnDamageEffect('HEART_FLOAT', 1500)
+
+      // Schedule next vocal natural interval (3 to 6.5s) while still petting
+      const nextInterval = 3200 + Math.random() * 3300
+      petVocalTimerRef.current = window.setTimeout(() => {
+        triggerPetVocalRef.current()
+      }, nextInterval)
+    }
+  }, [stateMachine, voiceStatus, spawnDamageEffect])
+
+  /** Start a continuous petting session (contact-based, not swipe-limited) */
+  const handlePetStart = useCallback(() => {
     if (stateMachine.isLocked()) return
 
     const now = Date.now()
     lastInteractionTimeRef.current = now
+    isPettingActiveRef.current = true
 
-    // Throttle during continuous swiping
-    if (now - lastPetTimeRef.current < 400) return
-    lastPetTimeRef.current = now
-
+    // Enter continuous PETTING state (remains active as long as finger is held)
+    stateMachine.setState('PETTING')
     statsManager.pet((updated) => setStats(updated))
-    stateMachine.triggerTemporaryState('PETTING', 1200, () => {
-      proceduralAnimator.resetFacialOverrides()
-    })
-
-    // Spawn floating heart particle
     spawnDamageEffect('HEART_FLOAT', 1500)
 
-    // First valid completed pet: GUARANTEED immediate audible "Pika Pika"!
-    // Subsequent pets: one every >=3s cooldown; otherwise gentle purr
+    // Clear any previous vocal timer
+    if (petVocalTimerRef.current !== null) {
+      clearTimeout(petVocalTimerRef.current)
+      petVocalTimerRef.current = null
+    }
+
+    // Schedule first petting vocal:
+    // Short ~550ms delay ensures a fast tap (< 280ms) won't trigger the vocal,
+    // but continued petting reliably hears "Pika Pika!" early on.
     const isVoiceActive =
       voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
-    const canPlayPika =
-      !isVoiceActive &&
-      (!hasPettedOnceRef.current || now - lastPetVocalTimeRef.current >= 3000)
+    if (!isVoiceActive) {
+      petVocalTimerRef.current = window.setTimeout(() => {
+        if (!isPettingActiveRef.current) return
+        SoundEffects.playPettingPika()
+        spawnDamageEffect('HEART_FLOAT', 1500)
 
-    if (canPlayPika) {
-      hasPettedOnceRef.current = true
-      lastPetVocalTimeRef.current = now
-      SoundEffects.playPettingPika()
-    } else {
-      SoundEffects.playPurr()
+        // Schedule subsequent vocals in continuous loop (3 - 6.5s)
+        const nextInterval = 3500 + Math.random() * 3000
+        petVocalTimerRef.current = window.setTimeout(() => {
+          triggerPetVocalRef.current()
+        }, nextInterval)
+      }, 550)
     }
-  }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus, proceduralAnimator])
+  }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus])
+
+  /** Continue petting during movement without resetting the session */
+  const handlePetMove = useCallback((yFactor: number) => {
+    if (stateMachine.isLocked()) return
+    lastInteractionTimeRef.current = Date.now()
+
+    if (stateMachine.getState() !== 'PETTING') {
+      stateMachine.setState('PETTING')
+    }
+    proceduralAnimator.setPettingFollow(yFactor, true)
+  }, [stateMachine, proceduralAnimator])
+
+  /** End continuous petting session on pointerup or pointercancel */
+  const handlePetEnd = useCallback(() => {
+    isPettingActiveRef.current = false
+
+    // Cancel pending vocal timers immediately
+    if (petVocalTimerRef.current !== null) {
+      clearTimeout(petVocalTimerRef.current)
+      petVocalTimerRef.current = null
+    }
+
+    proceduralAnimator.setPettingFollow(0, false)
+
+    // Cleanly return to IDLE and reset all facial overrides (no stuck smile or happy eyes)
+    if (stateMachine.getState() === 'PETTING') {
+      stateMachine.setState('IDLE')
+      proceduralAnimator.resetFacialOverrides()
+    }
+  }, [stateMachine, proceduralAnimator])
+
+  /** Backward-compatible pet swipe trigger */
+  const handlePetSwipe = useCallback(() => {
+    handlePetStart()
+  }, [handlePetStart])
 
   /** Fallback Pet Tap */
   const handlePetTap = useCallback(() => {
-    handlePetSwipe()
-  }, [handlePetSwipe])
+    handlePetStart()
+    setTimeout(() => {
+      handlePetEnd()
+    }, 1200)
+  }, [handlePetStart, handlePetEnd])
 
   /** Pet button (💖) in Dock */
   const handlePetAction = useCallback(() => {
-    handlePetSwipe()
-  }, [handlePetSwipe])
+    handlePetStart()
+    setTimeout(() => {
+      handlePetEnd()
+    }, 1500)
+  }, [handlePetStart, handlePetEnd])
 
   /** Hit button (💥) in Dock */
   const handleHitAction = useCallback(() => {
@@ -333,7 +402,7 @@ export function App() {
     if (voiceStatus === 'recording') {
       voiceRepeater.stopRecording()
     } else {
-      void voiceRepeater.startListening(5)
+      void voiceRepeater.startListening(20)
     }
   }, [stateMachine, voiceStatus, voiceRepeater])
 
@@ -461,6 +530,9 @@ export function App() {
         cameraStream={cameraStream}
         damageEffects={damageEffects}
         onHitLocation={handleHitLocation}
+        onPetStart={handlePetStart}
+        onPetMove={handlePetMove}
+        onPetEnd={handlePetEnd}
         onPetSwipe={handlePetSwipe}
         onTapPet={handlePetTap}
         onScoreSoccerGoal={handleScoreSoccerGoal}

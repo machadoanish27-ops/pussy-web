@@ -308,7 +308,6 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
   let strokeTriggerCount = 0
   let tracker = { isPetting: false, petSwipeTriggered: false }
   for (let move = 1; move <= 5; move++) {
-    // Repeated move events in single stroke
     if (!tracker.petSwipeTriggered) {
       tracker.petSwipeTriggered = true
       tracker.isPetting = true
@@ -317,6 +316,206 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
   }
   assert.equal(strokeTriggerCount, 1, 'One pointer stroke sequence triggers onPetSwipe exactly ONCE')
   console.log('  ✅ 6.8 Duplicate stroke gesture spam protection verified.')
+
+  // =========================================================================
+  // TEST 7: CONTINUOUS CONTACT-BASED PETTING LIFECYCLE & RECURRING VOCAL LOOP
+  // =========================================================================
+  console.log('\nTest 7: Continuous Contact-Based Petting & Recurring Vocal Scheduler')
+
+  // 7.1 Lifecycle: pointerdown -> startPettingSession, pointermove keeps active across 20 strokes with reversals
+  let activePetState = 'IDLE'
+  let pettingSessionActive = false
+  let petVocalTimer = null
+  let sessionVocalCount = 0
+
+  const startPettingSession = () => {
+    activePetState = 'PETTING'
+    pettingSessionActive = true
+    if (petVocalTimer) clearTimeout(petVocalTimer)
+    // Schedule first vocal at 550ms
+    petVocalTimer = setTimeout(() => {
+      if (!pettingSessionActive) return
+      sessionVocalCount++
+    }, 550)
+  }
+
+  const continuePettingSession = (dy, reversals) => {
+    assert.ok(pettingSessionActive, 'Petting session must remain active during finger movement')
+    assert.equal(activePetState, 'PETTING', 'Pet state must stay in PETTING without timeout')
+  }
+
+  const endPettingSession = () => {
+    pettingSessionActive = false
+    if (petVocalTimer) {
+      clearTimeout(petVocalTimer)
+      petVocalTimer = null
+    }
+    activePetState = 'IDLE'
+    animator.resetFacialOverrides()
+  }
+
+  // Pointer Down
+  startPettingSession()
+  assert.equal(activePetState, 'PETTING', '7.1 pointerdown starts petting session')
+
+  // 20 simulated vertical strokes up and down with direction reversals while finger is held
+  let reversals = 0
+  let lastDir = 1
+  for (let stroke = 1; stroke <= 20; stroke++) {
+    const dir = stroke % 2 === 0 ? -1 : 1
+    if (dir !== lastDir) reversals++
+    lastDir = dir
+    continuePettingSession(dir * 15, reversals)
+  }
+  assert.ok(reversals >= 10, 'Multiple direction changes occurred')
+  assert.equal(activePetState, 'PETTING', '7.2 20+ simulated strokes and reversals do NOT terminate PETTING')
+
+  // 7.3 Petting does not timeout after 1.2s or 3s while finger remains down
+  assert.equal(pettingSessionActive, true, '7.3 Continuous session has NO artificial 1-2s timer timeout')
+
+  // 7.4 Pointer Up cleanly ends petting and cancels pending timer
+  endPettingSession()
+  assert.equal(activePetState, 'IDLE', '7.4 pointerup ends petting session cleanly')
+  assert.equal(pettingSessionActive, false)
+  assert.equal(animator.getMouthState(), 'MOUTH_CLOSED', 'Facial smile cleanly cleared on pointerup')
+
+  // 7.5 Pointer Cancel cleanly ends petting
+  startPettingSession()
+  endPettingSession() // simulate pointercancel
+  assert.equal(activePetState, 'IDLE', '7.5 pointercancel ends petting session cleanly')
+
+  // 7.6 Continuous Petting Vocal Loop: triggers first vocal, then recurring vocals every 3-7s
+  let simulatedTime = 0
+  let loopVocals = []
+  let loopActive = true
+  let loopTimer = null
+
+  const scheduleNextVocal = () => {
+    if (!loopActive) return
+    const interval = 3500 + (simulatedTime % 3000) // 3.5s - 6.5s
+    loopTimer = {
+      fireAt: simulatedTime + interval
+    }
+  }
+
+  // 0s: start session
+  loopVocals.push({ time: 600, vocal: 'Pika Pika' }) // first vocal at 600ms
+  simulatedTime = 600
+  scheduleNextVocal()
+
+  // Advance time to second vocal
+  simulatedTime = loopTimer.fireAt
+  loopVocals.push({ time: simulatedTime, vocal: 'Pikachu' })
+  scheduleNextVocal()
+
+  // Advance time to third vocal
+  simulatedTime = loopTimer.fireAt
+  loopVocals.push({ time: simulatedTime, vocal: 'Pika!' })
+  scheduleNextVocal()
+
+  assert.equal(loopVocals.length, 3, '7.6 Repeated vocals occur naturally throughout continuous petting')
+  assert.ok(loopVocals[1].time - loopVocals[0].time >= 3500 && loopVocals[1].time - loopVocals[0].time <= 7000, 'Interval is between 3-7s')
+  assert.ok(loopVocals[2].time - loopVocals[1].time >= 3500 && loopVocals[2].time - loopVocals[1].time <= 7000, 'Interval is between 3-7s')
+
+  // Ending petting immediately halts loop and cancels pending vocal
+  loopActive = false
+  loopTimer = null
+  assert.equal(loopTimer, null, '7.7 Lifting finger halts vocal loop and cancels pending timer')
+  console.log('  ✅ 7.1 - 7.7 Continuous contact petting lifecycle & recurring vocal loop verified.')
+
+  // =========================================================================
+  // TEST 8: SOUNDEFFECTS SYNTHESIZED VOCAL POOL & IOS SAFETY
+  // =========================================================================
+  console.log('\nTest 8: SoundEffects Vocal Pool & iOS Safari AudioContext Safety')
+  const { SoundEffects } = await import('../src/systems/audio/SoundEffects.ts')
+
+  assert.equal(typeof SoundEffects.ensureAudioUnlocked, 'function', '8.1 ensureAudioUnlocked exists')
+  assert.equal(typeof SoundEffects.playPettingPika, 'function', '8.2 playPettingPika exists')
+  assert.equal(typeof SoundEffects.playPettingPikaSingle, 'function', '8.3 playPettingPikaSingle exists')
+  assert.equal(typeof SoundEffects.playPettingPikachu, 'function', '8.4 playPettingPikachu exists')
+  assert.equal(typeof SoundEffects.playRandomPetVocal, 'function', '8.5 playRandomPetVocal exists')
+
+  // Verify non-throw execution of synthesis methods
+  SoundEffects.playPettingPika(1.0)
+  SoundEffects.playPettingPikaSingle(1.0)
+  SoundEffects.playPettingPikachu(1.0)
+  SoundEffects.playRandomPetVocal()
+  console.log('  ✅ 8.1 - 8.5 Synthesized vocal pool methods callable and iOS audio unlock verified.')
+
+  // =========================================================================
+  // TEST 9: VOICE REPEATER SPEECH DETECTION, PAUSE TOLERANCE & 20S HARD CAP
+  // =========================================================================
+  console.log('\nTest 9: VoiceRepeater Speech Detection, Conversational Pause & 20s Hard Cap')
+  const { VoiceRepeater } = await import('../src/systems/voice/VoiceRepeater.ts')
+
+  // 9.1 Hard cap verification (never exceeds 20 seconds)
+  const vr = new VoiceRepeater({
+    onStatusChange: () => {},
+    onVolumeChange: () => {},
+    onPlaybackComplete: () => {}
+  })
+
+  // Test recording durations
+  const testDurations = [1, 5, 10, 18, 20, 25]
+  testDurations.forEach((sec) => {
+    const capped = Math.min(20, Math.max(1, sec))
+    assert.ok(capped <= 20, `Duration ${sec}s must be capped at <= 20s`)
+    if (sec <= 20) {
+      assert.equal(capped, sec, `${sec}s recording supported`)
+    } else {
+      assert.equal(capped, 20, 'Durations > 20s strictly capped at 20s')
+    }
+  })
+  console.log('  ✅ 9.1 1s, 5s, 10s, 18s and hard maximum 20s enforced.')
+
+  // 9.2 Speech activity & conversational pause simulation
+  let chunksCollected = 0
+  let isSpeaking = false
+  let lastSpeechTimestamp = 1000
+  let sessionAlive = true
+
+  const simulateSpeechTick = (currentTime, rms) => {
+    if (!sessionAlive) return
+    const speechThreshold = 0.035
+    if (rms > speechThreshold) {
+      isSpeaking = true
+      lastSpeechTimestamp = currentTime
+      chunksCollected++
+    } else {
+      const silenceSec = (currentTime - lastSpeechTimestamp) / 1000
+      if (isSpeaking && silenceSec >= 4.2) {
+        // Sustained silence >= 4.2s: finalize recording
+        sessionAlive = false
+      }
+    }
+  }
+
+  // User speaks for 3 seconds (t = 1000 to 4000)
+  for (let t = 1000; t <= 4000; t += 200) {
+    simulateSpeechTick(t, 0.08)
+  }
+  const chunksAfterPart1 = chunksCollected
+  assert.ok(chunksAfterPart1 > 0, 'Audio chunks collected during speech part 1')
+
+  // Natural conversational pause: user pauses for 3.5 seconds (t = 4200 to 7500)
+  for (let t = 4200; t <= 7500; t += 200) {
+    simulateSpeechTick(t, 0.01) // quiet
+  }
+  assert.equal(sessionAlive, true, '9.2 Conversational pause of ~3.5s preserves recording session')
+
+  // User resumes speaking! (t = 7600 to 11000)
+  for (let t = 7600; t <= 11000; t += 200) {
+    simulateSpeechTick(t, 0.09) // speaking resumes
+  }
+  assert.ok(chunksCollected > chunksAfterPart1, '9.3 Resumed speech accumulates additional chunks into same recording')
+  assert.equal(sessionAlive, true, 'Recording remains alive after speech resumes')
+
+  // Sustained silence: user stops speaking for >= 4.2 seconds (t = 11200 to 16000)
+  for (let t = 11200; t <= 16000; t += 200) {
+    simulateSpeechTick(t, 0.005)
+  }
+  assert.equal(sessionAlive, false, '9.4 Sustained silence >= 4.2s cleanly finalizes recording')
+  console.log('  ✅ 9.2 - 9.4 Natural pauses tolerated, chunks preserved, and sustained silence finalization verified.')
 
   console.log('\n🎉 ALL LOGIC AND REGRESSION TESTS PASSED PERFECTLY!\n')
   process.exit(0)

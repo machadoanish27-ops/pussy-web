@@ -324,15 +324,101 @@ class SoundEffectsEngine {
 
   /**
    * Synthesized enthusiastic double chirp: "Pi-ka... Pi-ka!"
+   * Scheduled entirely via Web Audio ctx.currentTime for iOS Safari reliability.
    */
   public playPikaPika(): void {
-    const ctx = this.getContext()
-    if (!ctx) return
+    this.playPettingPika()
+  }
 
-    this.playPika()
-    setTimeout(() => {
-      this.playPika()
-    }, 280)
+  /**
+   * Synthesized single cute cartoon vocal: "Pi-ka!"
+   * Clearly distinguishable syllables on phone speakers.
+   */
+  public playPettingPikaSingle(pitchFactor: number = 1.0): void {
+    const ctx = this.ensureAudioUnlocked()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // Syllable: "Pi-"
+    const osc1 = ctx.createOscillator()
+    const gain1 = ctx.createGain()
+    osc1.type = 'triangle'
+    osc1.frequency.setValueAtTime(880 * pitchFactor, now)
+    osc1.frequency.exponentialRampToValueAtTime(1400 * pitchFactor, now + 0.08)
+    gain1.gain.setValueAtTime(0.40, now)
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+    osc1.connect(gain1)
+    gain1.connect(ctx.destination)
+    osc1.start(now)
+    osc1.stop(now + 0.08)
+
+    // Syllable: "-ka!"
+    const t2 = now + 0.085
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(850 * pitchFactor, t2)
+    osc2.frequency.exponentialRampToValueAtTime(500 * pitchFactor, t2 + 0.12)
+    gain2.gain.setValueAtTime(0.44, t2)
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.12)
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.start(t2)
+    osc2.stop(t2 + 0.12)
+  }
+
+  /**
+   * Synthesized three-syllable cartoon vocal: "Pi-ka-chu!"
+   * Syllable 1: "Pi-" (high sweep)
+   * Syllable 2: "-ka-" (mid accent)
+   * Syllable 3: "-chu!" (sweet high flutter)
+   */
+  public playPettingPikachu(pitchFactor: number = 1.0): void {
+    const ctx = this.ensureAudioUnlocked()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // 1. "Pi-"
+    const osc1 = ctx.createOscillator()
+    const gain1 = ctx.createGain()
+    osc1.type = 'triangle'
+    osc1.frequency.setValueAtTime(860 * pitchFactor, now)
+    osc1.frequency.exponentialRampToValueAtTime(1360 * pitchFactor, now + 0.075)
+    gain1.gain.setValueAtTime(0.38, now)
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.075)
+    osc1.connect(gain1)
+    gain1.connect(ctx.destination)
+    osc1.start(now)
+    osc1.stop(now + 0.075)
+
+    // 2. "-ka-"
+    const t2 = now + 0.08
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(820 * pitchFactor, t2)
+    osc2.frequency.exponentialRampToValueAtTime(540 * pitchFactor, t2 + 0.085)
+    gain2.gain.setValueAtTime(0.40, t2)
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.085)
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.start(t2)
+    osc2.stop(t2 + 0.085)
+
+    // 3. "-chu!"
+    const t3 = now + 0.175
+    const osc3 = ctx.createOscillator()
+    const gain3 = ctx.createGain()
+    osc3.type = 'triangle'
+    osc3.frequency.setValueAtTime(980 * pitchFactor, t3)
+    osc3.frequency.exponentialRampToValueAtTime(1520 * pitchFactor, t3 + 0.07)
+    osc3.frequency.exponentialRampToValueAtTime(880 * pitchFactor, t3 + 0.16)
+    gain3.gain.setValueAtTime(0.42, t3)
+    gain3.gain.exponentialRampToValueAtTime(0.001, t3 + 0.16)
+    osc3.connect(gain3)
+    gain3.connect(ctx.destination)
+    osc3.start(t3)
+    osc3.stop(t3 + 0.16)
   }
 
   /**
@@ -340,7 +426,7 @@ class SoundEffectsEngine {
    * Guaranteed clear, audible cartoon syllables on iPhone speakers.
    * Syllable 1 ("Pi-ka") -> short pause (0.04s) -> Syllable 2 ("Pi-ka!").
    */
-  public playPettingPika(): void {
+  public playPettingPika(pitchFactor: number = 1.0): void {
     const ctx = this.ensureAudioUnlocked()
     if (!ctx) return
     const now = ctx.currentTime
@@ -350,8 +436,8 @@ class SoundEffectsEngine {
     const osc1 = ctx.createOscillator()
     const gain1 = ctx.createGain()
     osc1.type = 'triangle'
-    osc1.frequency.setValueAtTime(860, now)
-    osc1.frequency.exponentialRampToValueAtTime(1380, now + 0.08)
+    osc1.frequency.setValueAtTime(860 * pitchFactor, now)
+    osc1.frequency.exponentialRampToValueAtTime(1380 * pitchFactor, now + 0.08)
     gain1.gain.setValueAtTime(0.38, now)
     gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
     osc1.connect(gain1)
@@ -364,8 +450,8 @@ class SoundEffectsEngine {
     const osc1b = ctx.createOscillator()
     const gain1b = ctx.createGain()
     osc1b.type = 'sine'
-    osc1b.frequency.setValueAtTime(820, t1b)
-    osc1b.frequency.exponentialRampToValueAtTime(490, t1b + 0.11)
+    osc1b.frequency.setValueAtTime(820 * pitchFactor, t1b)
+    osc1b.frequency.exponentialRampToValueAtTime(490 * pitchFactor, t1b + 0.11)
     gain1b.gain.setValueAtTime(0.42, t1b)
     gain1b.gain.exponentialRampToValueAtTime(0.001, t1b + 0.11)
     osc1b.connect(gain1b)
@@ -380,8 +466,8 @@ class SoundEffectsEngine {
     const osc2a = ctx.createOscillator()
     const gain2a = ctx.createGain()
     osc2a.type = 'triangle'
-    osc2a.frequency.setValueAtTime(940, t2a)
-    osc2a.frequency.exponentialRampToValueAtTime(1480, t2a + 0.08)
+    osc2a.frequency.setValueAtTime(940 * pitchFactor, t2a)
+    osc2a.frequency.exponentialRampToValueAtTime(1480 * pitchFactor, t2a + 0.08)
     gain2a.gain.setValueAtTime(0.40, t2a)
     gain2a.gain.exponentialRampToValueAtTime(0.001, t2a + 0.08)
     osc2a.connect(gain2a)
@@ -394,14 +480,39 @@ class SoundEffectsEngine {
     const osc2b = ctx.createOscillator()
     const gain2b = ctx.createGain()
     osc2b.type = 'sine'
-    osc2b.frequency.setValueAtTime(880, t2b)
-    osc2b.frequency.exponentialRampToValueAtTime(510, t2b + 0.14)
+    osc2b.frequency.setValueAtTime(880 * pitchFactor, t2b)
+    osc2b.frequency.exponentialRampToValueAtTime(510 * pitchFactor, t2b + 0.14)
     gain2b.gain.setValueAtTime(0.44, t2b)
     gain2b.gain.exponentialRampToValueAtTime(0.001, t2b + 0.14)
     osc2b.connect(gain2b)
     gain2b.connect(ctx.destination)
     osc2b.start(t2b)
     osc2b.stop(t2b + 0.14)
+  }
+
+  /**
+   * Randomly triggers one vocal reaction from the synthesized pet vocal pool:
+   * "Pika Pika", "Pika!", "Pikachu!", "Pika Pika!"
+   * with natural organic pitch and timing nuances.
+   */
+  public playRandomPetVocal(): void {
+    const pitch = 0.96 + Math.random() * 0.1 // 0.96 to 1.06
+    const choice = Math.floor(Math.random() * 4)
+    switch (choice) {
+      case 0:
+        this.playPettingPika(pitch)
+        break
+      case 1:
+        this.playPettingPikaSingle(pitch * 1.02)
+        break
+      case 2:
+        this.playPettingPikachu(pitch)
+        break
+      case 3:
+      default:
+        this.playPettingPika(pitch * 1.04)
+        break
+    }
   }
 
   /** Curious high-pitched squeak / chirp */

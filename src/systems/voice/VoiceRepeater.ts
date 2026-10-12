@@ -29,7 +29,14 @@ export class VoiceRepeater {
   private recordedChunks: Blob[] = []
   private audioCtx: AudioContext | null = null
   private currentSource: AudioBufferSourceNode | null = null
+  private micSource: MediaStreamAudioSourceNode | null = null
+  private micAnalyser: AnalyserNode | null = null
   private maxDurationTimer: number | null = null
+  private silenceCheckTimer: number | null = null
+  private recordingStartTime: number = 0
+  private lastSpeechTime: number = 0
+  private hasDetectedSpeech: boolean = false
+  private noiseFloor: number = 0.02
   private callbacks: VoiceRepeaterCallbacks
 
   constructor(callbacks: VoiceRepeaterCallbacks) {
@@ -56,7 +63,13 @@ export class VoiceRepeater {
     return this.audioCtx
   }
 
-  public async startListening(maxSeconds: number = 5): Promise<void> {
+  /**
+   * Starts listening to user speech.
+   * Hard maximum duration is 20 seconds.
+   * Dynamically tracks speech activity so natural conversational pauses
+   * (~4-5s) are tolerated without prematurely terminating the session.
+   */
+  public async startListening(maxSeconds: number = 20): Promise<void> {
     if (this.status === 'recording' || this.status === 'speaking') {
       this.stop()
       return
@@ -66,6 +79,9 @@ export class VoiceRepeater {
       this.setStatus('unsupported', 'Microphone not supported on this browser')
       return
     }
+
+    // Absolute hard ceiling of 20 seconds
+    const hardCapSeconds = Math.min(20, Math.max(1, maxSeconds))
 
     try {
       this.setStatus('requesting', 'Requesting microphone permission...')
@@ -92,14 +108,80 @@ export class VoiceRepeater {
         void this.processAndRepeat()
       }
 
-      this.mediaRecorder.start()
-      SoundEffects.playRecordBeep(true)
-      this.setStatus('recording', 'Listening... speak to Pikachu!')
+      // Initialize live speech detection using Web Audio Analyser
+      const ctx = this.getAudioContext()
+      this.micSource = ctx.createMediaStreamSource(this.mediaStream)
+      this.micAnalyser = ctx.createAnalyser()
+      this.micAnalyser.fftSize = 256
+      this.micSource.connect(this.micAnalyser)
 
-      // Auto stop after max seconds
+      this.recordingStartTime = Date.now()
+      this.lastSpeechTime = Date.now()
+      this.hasDetectedSpeech = false
+      this.noiseFloor = 0.02
+
+      // Start recording with 200ms timeslice to ensure continuous chunk gathering
+      this.mediaRecorder.start(200)
+      SoundEffects.playRecordBeep(true)
+      this.setStatus('recording', 'Listening... speak to Pikachu! (Up to 20s)')
+
+      // Hard ceiling timeout: never exceeds 20 seconds
       this.maxDurationTimer = window.setTimeout(() => {
         this.stopRecording()
-      }, maxSeconds * 1000)
+      }, hardCapSeconds * 1000)
+
+      // Live Speech Activity & Graceful Silence Detection loop (polled every 100ms)
+      const buffer = new Float32Array(this.micAnalyser.fftSize)
+      this.silenceCheckTimer = window.setInterval(() => {
+        if (this.status !== 'recording' || !this.micAnalyser) return
+
+        const now = Date.now()
+        const elapsedSec = (now - this.recordingStartTime) / 1000
+
+        // Hard maximum safety check
+        if (elapsedSec >= hardCapSeconds) {
+          this.stopRecording()
+          return
+        }
+
+        // Measure audio root-mean-square (RMS)
+        this.micAnalyser.getFloatTimeDomainData(buffer)
+        let sumSquares = 0
+        for (let i = 0; i < buffer.length; i++) {
+          sumSquares += buffer[i] * buffer[i]
+        }
+        const rms = Math.sqrt(sumSquares / buffer.length)
+
+        // Baseline ambient noise floor calibration during initial 350ms
+        if (elapsedSec < 0.35) {
+          this.noiseFloor = Math.max(0.012, this.noiseFloor * 0.7 + rms * 0.3)
+        }
+
+        const speechThreshold = Math.max(0.032, this.noiseFloor * 2.1)
+
+        if (rms > speechThreshold) {
+          // User is currently speaking: refresh speech timestamp and keep collecting chunks
+          this.hasDetectedSpeech = true
+          this.lastSpeechTime = now
+          this.setStatus('recording', 'Pikachu is listening to you speak...')
+        } else {
+          // Pause / silence detection
+          const silenceDurationSec = (now - this.lastSpeechTime) / 1000
+
+          if (this.hasDetectedSpeech) {
+            // Conversational grace period: natural pauses (~4-5s) are preserved.
+            // Only finalize after sustained silence >= 4.2 seconds
+            if (silenceDurationSec >= 4.2) {
+              this.stopRecording()
+            }
+          } else {
+            // Initial silence before speech begins: allow up to 8.5 seconds
+            if (silenceDurationSec >= 8.5) {
+              this.stopRecording()
+            }
+          }
+        }
+      }, 100)
     } catch (err: unknown) {
       const error = err as Error
       if (error.name === 'NotAllowedError' || error.name === 'PermissionDeniedError') {
@@ -115,6 +197,21 @@ export class VoiceRepeater {
       clearTimeout(this.maxDurationTimer)
       this.maxDurationTimer = null
     }
+
+    if (this.silenceCheckTimer !== null) {
+      clearInterval(this.silenceCheckTimer)
+      this.silenceCheckTimer = null
+    }
+
+    if (this.micSource) {
+      try {
+        this.micSource.disconnect()
+      } catch {
+        // Safe ignore
+      }
+      this.micSource = null
+    }
+    this.micAnalyser = null
 
     if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
       SoundEffects.playRecordBeep(false)
@@ -209,6 +306,20 @@ export class VoiceRepeater {
       clearTimeout(this.maxDurationTimer)
       this.maxDurationTimer = null
     }
+    if (this.silenceCheckTimer !== null) {
+      clearInterval(this.silenceCheckTimer)
+      this.silenceCheckTimer = null
+    }
+    if (this.micSource) {
+      try {
+        this.micSource.disconnect()
+      } catch {
+        // Safe ignore
+      }
+      this.micSource = null
+    }
+    this.micAnalyser = null
+
     if (this.mediaRecorder && this.mediaRecorder.state === 'recording') {
       this.mediaRecorder.stop()
     }
