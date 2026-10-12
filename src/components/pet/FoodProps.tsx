@@ -2,10 +2,12 @@ import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
 import * as THREE from 'three'
 import type { FoodType } from '../../types'
+import type { ProceduralAnimator } from '../../systems/pet/ProceduralAnimator.ts'
 
 interface FoodPropsProps {
   food: FoodType
   progress: number // 0 (served) to 1 (consumed)
+  animator?: ProceduralAnimator
   petPosition?: [number, number, number]
   petRotationY?: number
   petScale?: number
@@ -16,72 +18,103 @@ interface FoodPropsProps {
  *
  * Implements smooth cartoon presentation on mobile viewports:
  * 1. Spawns cleanly at ground level in front of Pikachu.
- * 2. Floats up toward Pikachu's mouth as chewing / sipping begins.
- * 3. Shrinks into the mouth during active consumption.
- * 4. Cleans up cleanly without clipping or dock overlap.
+ * 2. Floats up and arches directly into Pikachu's actual 3D mouth position.
+ * 3. Shrinks into the mouth during active chewing / sipping consumption.
+ * 4. Cleans up cleanly without clipping or lingering near the feet.
  */
 export const FoodProps = ({
   food,
   progress,
+  animator,
   petPosition = [0, -0.69, 0],
   petRotationY = 0,
   petScale = 0.034,
 }: FoodPropsProps) => {
   const groupRef = useRef<THREE.Group>(null)
+  const mouthWorldPosRef = useRef(new THREE.Vector3())
 
   // Scale multiplier relative to default pet size
   const relativeScale = petScale / 0.034
 
-  // Dynamic ground level and mouth level relative to Pikachu's placed 3D/AR position
-  const baseY = petPosition[1] + 0.01 * relativeScale
-  const mouthY = petPosition[1] + 0.38 * relativeScale
-
-  const { currentY, currentTilt, scale } = (() => {
-    if (progress < 0.2) {
-      // Pop in on floor
-      const enter = progress / 0.2
-      return {
-        currentY: baseY,
-        currentTilt: 0,
-        scale: THREE.MathUtils.lerp(0.01, 1.0, enter),
-      }
-    } else if (progress < 0.75) {
-      // Float up toward mouth
-      const floatProgress = (progress - 0.2) / 0.55
-      return {
-        currentY: THREE.MathUtils.lerp(baseY, mouthY, floatProgress),
-        currentTilt: THREE.MathUtils.lerp(0, -0.28, floatProgress),
-        scale: 1.0,
-      }
-    } else {
-      // Consumed into mouth
-      const consumeProgress = (progress - 0.75) / 0.25
-      return {
-        currentY: mouthY,
-        currentTilt: -0.28,
-        scale: Math.max(0, 1.0 - consumeProgress),
-      }
-    }
-  })()
+  // Ground level spawn in front of Pikachu
+  const forwardDist = 0.40 * relativeScale
+  const spawnX = petPosition[0] + Math.sin(petRotationY) * forwardDist
+  const spawnY = petPosition[1] + 0.02 * relativeScale
+  const spawnZ = petPosition[2] + Math.cos(petRotationY) * forwardDist
 
   useFrame(() => {
     if (!groupRef.current) return
-    const s = scale * relativeScale
+
+    // Derive actual mouth world position from animator, or fallback using model proportions
+    let mouthX: number
+    let mouthY: number
+    let mouthZ: number
+
+    if (animator) {
+      const mouthTarget = animator.getMouthWorldPosition(mouthWorldPosRef.current)
+      mouthX = mouthTarget.x
+      mouthY = mouthTarget.y
+      mouthZ = mouthTarget.z
+    } else {
+      mouthX = petPosition[0] + Math.sin(petRotationY) * (0.42 * relativeScale)
+      mouthY = petPosition[1] + 1.15 * relativeScale
+      mouthZ = petPosition[2] + Math.cos(petRotationY) * (0.42 * relativeScale)
+    }
+
+    let posX: number
+    let posY: number
+    let posZ: number
+    let tilt: number
+    let currentScale: number
+
+    if (progress < 0.15) {
+      // 1. Spawns / pops in cleanly on ground
+      const enter = progress / 0.15
+      currentScale = THREE.MathUtils.lerp(0.01, 1.0, enter)
+      posX = spawnX
+      posY = spawnY
+      posZ = spawnZ
+      tilt = 0
+    } else if (progress < 0.68) {
+      // 2. Rises in natural arc from ground directly toward Pikachu's mouth
+      const travel = (progress - 0.15) / 0.53
+      const smoothT = THREE.MathUtils.smoothstep(travel, 0, 1)
+      const arc = Math.sin(smoothT * Math.PI) * (0.06 * relativeScale)
+      posX = THREE.MathUtils.lerp(spawnX, mouthX, smoothT)
+      posY = THREE.MathUtils.lerp(spawnY, mouthY, smoothT) + arc
+      posZ = THREE.MathUtils.lerp(spawnZ, mouthZ, smoothT)
+      tilt = THREE.MathUtils.lerp(0, -0.32, smoothT)
+      currentScale = 1.0
+    } else if (progress < 0.94) {
+      // 3. Arrives at mouth: Pikachu chews/sips, food visibly shrinks inside mouth
+      const chewT = (progress - 0.68) / 0.26
+      posX = mouthX
+      posY = mouthY
+      posZ = mouthZ
+      tilt = -0.32
+      currentScale = Math.max(0, 1.0 - chewT)
+    } else {
+      // 4. Fully consumed inside mouth
+      currentScale = 0
+      posX = mouthX
+      posY = mouthY
+      posZ = mouthZ
+      tilt = -0.32
+    }
+
+    groupRef.current.position.set(posX, posY, posZ)
+    groupRef.current.rotation.set(tilt, petRotationY, 0)
+    const s = currentScale * relativeScale
     groupRef.current.scale.set(s, s, s)
   })
 
   if (!food) return null
 
-  // Anchored in front of Pikachu based on rotation
-  const forwardDist = 0.38 * relativeScale
-  const foodX = petPosition[0] + Math.sin(petRotationY) * forwardDist
-  const foodZ = petPosition[2] + Math.cos(petRotationY) * forwardDist
-
   return (
     <group
       ref={groupRef}
-      position={[foodX, currentY, foodZ]}
-      rotation={[currentTilt, petRotationY, 0]}
+      position={[spawnX, spawnY, spawnZ]}
+      rotation={[0, petRotationY, 0]}
     >
       {food === 'milk' ? (
         // High-Fidelity Stylized Milk Glass / Cup with Coaster & Straw

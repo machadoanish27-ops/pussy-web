@@ -29,8 +29,8 @@ export const StatusBar = ({
   return (
     <header className="app-header">
       {/* Brand & Mode Badges */}
-      <div style={{ display: 'flex', flexDirection: 'column', gap: '6px' }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="header-left">
+        <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
           <div className="brand-badge">
             <span className="brand-dot" aria-hidden="true" />
             <span className="brand-title">PUSSY</span>
@@ -60,12 +60,12 @@ export const StatusBar = ({
             style={{
               display: 'inline-flex',
               alignItems: 'center',
-              gap: '6px',
-              padding: '4px 10px',
+              gap: '4px',
+              padding: '3px 8px',
               background: 'rgba(245, 158, 11, 0.2)',
               border: '1px solid rgba(245, 158, 11, 0.4)',
               borderRadius: '9999px',
-              fontSize: '11px',
+              fontSize: '10px',
               fontWeight: 700,
               color: '#f59e0b',
             }}
@@ -76,7 +76,7 @@ export const StatusBar = ({
       </div>
 
       {/* Stats Cluster & Sound Toggle */}
-      <div style={{ display: 'flex', alignItems: 'center', gap: '8px' }}>
+      <div className="header-right">
         {/* Core Stats Bar */}
         <div className="stats-cluster">
           {/* Hunger */}

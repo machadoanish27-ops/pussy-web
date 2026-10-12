@@ -16,9 +16,9 @@ class SoundEffectsEngine {
     }
   }
 
-  private getContext(): AudioContext | null {
+  public ensureAudioUnlocked(): AudioContext | null {
     if (this.muted) return null
-    if (!this.ctx) {
+    if (!this.ctx && typeof window !== 'undefined') {
       const AudioCtx = window.AudioContext || (window as unknown as { webkitAudioContext: typeof AudioContext }).webkitAudioContext
       if (AudioCtx) {
         this.ctx = new AudioCtx()
@@ -28,6 +28,10 @@ class SoundEffectsEngine {
       void this.ctx.resume()
     }
     return this.ctx
+  }
+
+  private getContext(): AudioContext | null {
+    return this.ensureAudioUnlocked()
   }
 
   public isMuted(): boolean {
@@ -332,58 +336,72 @@ class SoundEffectsEngine {
   }
 
   /**
-   * Synthesized sweet petting vocal reaction: "Pi-ka... pi-ka~"
-   * Specially calibrated with pitch and tempo variations for gentle tactile feedback.
+   * Synthesized sweet petting vocal reaction: "Pi-ka... Pi-ka!"
+   * Guaranteed clear, audible cartoon syllables on iPhone speakers.
+   * Syllable 1 ("Pi-ka") -> short pause (0.04s) -> Syllable 2 ("Pi-ka!").
    */
   public playPettingPika(): void {
-    const ctx = this.getContext()
+    const ctx = this.ensureAudioUnlocked()
     if (!ctx) return
     const now = ctx.currentTime
 
-    // Subtle pitch variation between strokes for living character feel
-    const pitchFactor = 0.95 + Math.random() * 0.16
-    const isTriple = Math.random() < 0.28 // 28% chance of sweet 3-chirp "pika-pika-pika"
+    // Distinct two-syllable "Pi-ka... Pi-ka!" structure
+    // Syllable 1: "Pi-"
+    const osc1 = ctx.createOscillator()
+    const gain1 = ctx.createGain()
+    osc1.type = 'triangle'
+    osc1.frequency.setValueAtTime(860, now)
+    osc1.frequency.exponentialRampToValueAtTime(1380, now + 0.08)
+    gain1.gain.setValueAtTime(0.38, now)
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+    osc1.connect(gain1)
+    gain1.connect(ctx.destination)
+    osc1.start(now)
+    osc1.stop(now + 0.08)
 
-    const playChirp = (startTime: number, baseFreq: number, dropFreq: number, vol: number) => {
-      const osc1 = ctx.createOscillator()
-      const gain1 = ctx.createGain()
-      osc1.type = 'triangle'
-      osc1.frequency.setValueAtTime(baseFreq * pitchFactor, startTime)
-      osc1.frequency.exponentialRampToValueAtTime((baseFreq * 1.35) * pitchFactor, startTime + 0.07)
+    // Syllable 1: "-ka"
+    const t1b = now + 0.085
+    const osc1b = ctx.createOscillator()
+    const gain1b = ctx.createGain()
+    osc1b.type = 'sine'
+    osc1b.frequency.setValueAtTime(820, t1b)
+    osc1b.frequency.exponentialRampToValueAtTime(490, t1b + 0.11)
+    gain1b.gain.setValueAtTime(0.42, t1b)
+    gain1b.gain.exponentialRampToValueAtTime(0.001, t1b + 0.11)
+    osc1b.connect(gain1b)
+    gain1b.connect(ctx.destination)
+    osc1b.start(t1b)
+    osc1b.stop(t1b + 0.11)
 
-      gain1.gain.setValueAtTime(vol, startTime)
-      gain1.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07)
+    // Short pause: 0.04s (between t1b + 0.11 = now + 0.195 and now + 0.235)
 
-      osc1.connect(gain1)
-      gain1.connect(ctx.destination)
-      osc1.start(startTime)
-      osc1.stop(startTime + 0.07)
+    // Syllable 2: "Pi-"
+    const t2a = now + 0.235
+    const osc2a = ctx.createOscillator()
+    const gain2a = ctx.createGain()
+    osc2a.type = 'triangle'
+    osc2a.frequency.setValueAtTime(940, t2a)
+    osc2a.frequency.exponentialRampToValueAtTime(1480, t2a + 0.08)
+    gain2a.gain.setValueAtTime(0.40, t2a)
+    gain2a.gain.exponentialRampToValueAtTime(0.001, t2a + 0.08)
+    osc2a.connect(gain2a)
+    gain2a.connect(ctx.destination)
+    osc2a.start(t2a)
+    osc2a.stop(t2a + 0.08)
 
-      const osc2 = ctx.createOscillator()
-      const gain2 = ctx.createGain()
-      osc2.type = 'sine'
-      osc2.frequency.setValueAtTime((dropFreq * 1.15) * pitchFactor, startTime + 0.075)
-      osc2.frequency.exponentialRampToValueAtTime(dropFreq * pitchFactor, startTime + 0.16)
-
-      gain2.gain.setValueAtTime(vol * 1.1, startTime + 0.075)
-      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + 0.16)
-
-      osc2.connect(gain2)
-      gain2.connect(ctx.destination)
-      osc2.start(startTime + 0.075)
-      osc2.stop(startTime + 0.16)
-    }
-
-    // First cheerful "Pi-ka"
-    playChirp(now, 920, 560, 0.2)
-
-    // Second cheerful "pi-ka~"
-    playChirp(now + 0.22, 1020, 620, 0.24)
-
-    // Optional third mini chirp
-    if (isTriple) {
-      playChirp(now + 0.44, 1140, 700, 0.22)
-    }
+    // Syllable 2: "-ka!"
+    const t2b = now + 0.32
+    const osc2b = ctx.createOscillator()
+    const gain2b = ctx.createGain()
+    osc2b.type = 'sine'
+    osc2b.frequency.setValueAtTime(880, t2b)
+    osc2b.frequency.exponentialRampToValueAtTime(510, t2b + 0.14)
+    gain2b.gain.setValueAtTime(0.44, t2b)
+    gain2b.gain.exponentialRampToValueAtTime(0.001, t2b + 0.14)
+    osc2b.connect(gain2b)
+    gain2b.connect(ctx.destination)
+    osc2b.start(t2b)
+    osc2b.stop(t2b + 0.14)
   }
 
   /** Curious high-pitched squeak / chirp */

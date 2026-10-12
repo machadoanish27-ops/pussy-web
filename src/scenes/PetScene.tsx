@@ -111,6 +111,7 @@ export const PetScene = ({
       <FoodProps
         food={food}
         progress={foodProgress}
+        animator={animator}
         petPosition={petPosition}
         petRotationY={petRotationY}
         petScale={petScale}

@@ -37,6 +37,7 @@ export type MouthState =
   | 'MOUTH_SMALL'
   | 'MOUTH_OPEN'
   | 'MOUTH_WIDE'
+  | 'MOUTH_SMILE'
 
 export interface PetStats {
   hunger: number

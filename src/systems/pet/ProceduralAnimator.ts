@@ -114,6 +114,11 @@ export class ProceduralAnimator {
   private targetRot = new THREE.Euler(0, 0, 0)
   private targetScale = new THREE.Vector3(1, 1, 1)
 
+  // Centralized State Transition & World Mouth Anchor Tracking
+  private lastState: PetState = 'IDLE'
+  private lastRootGroup: THREE.Object3D | null = null
+  private stableMouthAnchor: THREE.Vector3 = new THREE.Vector3(0, 33.85, 12.8)
+
   public bindModel(scene: THREE.Object3D): void {
     this.baseRotations.clear()
 
@@ -261,12 +266,78 @@ export class ProceduralAnimator {
     return this.dazedTimer > 0
   }
 
+  /**
+   * Derives and returns current world position of Pikachu's mouth.
+   * Derived from Object_8 mouth mesh geometry transformed by world matrices,
+   * dynamically tracking head tilts, translations, AR placement, drag, scale, and rotation.
+   */
+  public getMouthWorldPosition(outVec: THREE.Vector3 = new THREE.Vector3()): THREE.Vector3 {
+    if (this.mouthMesh) {
+      this.mouthMesh.updateWorldMatrix(true, false)
+      return this.mouthMesh.localToWorld(outVec.copy(this.stableMouthAnchor))
+    }
+    if (this.lastRootGroup) {
+      this.lastRootGroup.updateWorldMatrix(true, false)
+      return this.lastRootGroup.localToWorld(outVec.copy(this.stableMouthAnchor))
+    }
+    return outVec.set(0, 0.46, 0.43)
+  }
+
+  /**
+   * Resets all facial overrides (mouth smile/opening, eye UVs, jaw displacement, cheek effects)
+   * returning character facial expressions cleanly and reliably to neutral.
+   */
+  public resetFacialOverrides(): void {
+    this.currentMouthState = 'MOUTH_CLOSED'
+    this.mouthOpenProgress = 0
+    this.smoothedVolume = 0
+    this.pettingFollowY = 0
+    this.isBeingPetted = false
+
+    // Instantly reset mouth resting vertices and UVs
+    if (this.mouthMesh) {
+      if (this.initialMouthUV) {
+        const uv = this.mouthMesh.geometry.attributes.uv
+        for (let i = 0; i < uv.count; i++) {
+          uv.setXY(i, this.initialMouthUV[i * 2], this.initialMouthUV[i * 2 + 1])
+        }
+        uv.needsUpdate = true
+      }
+      if (this.initialMouthY && this.initialMouthZ) {
+        const pos = this.mouthMesh.geometry.attributes.position
+        for (let i = 0; i < pos.count; i++) {
+          pos.setY(i, this.initialMouthY[i])
+          pos.setZ(i, this.initialMouthZ[i])
+        }
+        pos.needsUpdate = true
+      }
+    }
+
+    // Instantly reset eye resting vertices and UVs
+    if (this.eyeMesh) {
+      if (this.initialEyeUV) {
+        const uv = this.eyeMesh.geometry.attributes.uv
+        for (let i = 0; i < uv.count; i++) {
+          uv.setXY(i, this.initialEyeUV[i * 2], this.initialEyeUV[i * 2 + 1])
+        }
+        uv.needsUpdate = true
+      }
+      if (this.initialEyeY) {
+        const pos = this.eyeMesh.geometry.attributes.position
+        for (let i = 0; i < pos.count; i++) {
+          pos.setY(i, this.initialEyeY[i])
+        }
+        pos.needsUpdate = true
+      }
+    }
+  }
+
   public clearDamageEffects(): void {
     this.leftCheekSwelling = 0
     this.rightCheekSwelling = 0
     this.dazedTimer = 0
     this.activeHitLocation = null
-    this.currentMouthState = 'MOUTH_CLOSED'
+    this.resetFacialOverrides()
 
     // Restore cheek mesh resting positions
     if (this.cheekMesh && this.initialCheekX && this.initialCheekZ) {
@@ -277,23 +348,6 @@ export class ProceduralAnimator {
       }
       pos.needsUpdate = true
     }
-
-    // Restore mouth and eye resting UVs
-    if (this.mouthMesh && this.initialMouthUV) {
-      const uv = this.mouthMesh.geometry.attributes.uv
-      for (let i = 0; i < uv.count; i++) {
-        uv.setXY(i, this.initialMouthUV[i * 2], this.initialMouthUV[i * 2 + 1])
-      }
-      uv.needsUpdate = true
-    }
-
-    if (this.eyeMesh && this.initialEyeUV) {
-      const uv = this.eyeMesh.geometry.attributes.uv
-      for (let i = 0; i < uv.count; i++) {
-        uv.setXY(i, this.initialEyeUV[i * 2], this.initialEyeUV[i * 2 + 1])
-      }
-      uv.needsUpdate = true
-    }
   }
 
   public update(
@@ -303,6 +357,14 @@ export class ProceduralAnimator {
     time: number,
     voiceVolume: number = 0
   ): void {
+    // Record root group reference for dynamic world mouth position tracking
+    this.lastRootGroup = rootGroup
+
+    // Reset facial overrides on any state transition to prevent sticky expressions
+    if (state !== this.lastState) {
+      this.resetFacialOverrides()
+      this.lastState = state
+    }
     // 1. Natural living random ear twitch generator
     this.earTwitchTimer += delta
     if (this.earTwitchTimer > 3.5 + Math.sin(time) * 1.5) {
@@ -573,6 +635,265 @@ export class ProceduralAnimator {
     this.updateFacialAnimation(state, time, delta, voiceVolume)
   }
 
+  /**
+   * Centralized Facial State Resolution System.
+   * Priority hierarchy:
+   * FALLING / LYING / RECOVERING > EATING / DRINKING > TALKING > LISTENING > PETTING > HAPPY > HIT > IDLE
+   */
+  public resolveFacialState(
+    state: PetState,
+    time: number = 0,
+    volume: number = 0
+  ): {
+    targetEyeU: number
+    targetEyeV: number
+    targetMouthU: number
+    targetMouthV: number
+    mouthState: MouthState
+    jawDropTarget: number
+  } {
+    // 1. FALLING / LYING / RECOVERING (Highest Priority)
+    if (state === 'LYING' || state === 'SLEEPING') {
+      return {
+        targetEyeU: 0.5,
+        targetEyeV: -0.25, // Closed sleeping/dizzy eyes
+        targetMouthU: 0,
+        targetMouthV: 0,
+        mouthState: 'MOUTH_CLOSED',
+        jawDropTarget: 0,
+      }
+    }
+    if (state === 'FALLING') {
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.75, // Dazed eyes
+        targetMouthU: 0,
+        targetMouthV: -0.25,
+        mouthState: 'MOUTH_SMALL',
+        jawDropTarget: 0.35,
+      }
+    }
+    if (state === 'RECOVERING') {
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.75, // Dazed comic eyes shaking off dizziness
+        targetMouthU: 0,
+        targetMouthV: 0,
+        mouthState: 'MOUTH_CLOSED',
+        jawDropTarget: 0,
+      }
+    }
+
+    // 2. EATING (Chewing sequence: closed -> small open -> open -> closed -> small open -> closed)
+    if (state === 'EATING') {
+      const chewCycle = (time * 4.6) % 1.0
+      let mouthState: MouthState
+      let mouthU: number
+      let mouthV: number
+      let jawDrop: number
+
+      if (chewCycle < 0.20) {
+        mouthState = 'MOUTH_CLOSED'
+        mouthU = 0
+        mouthV = 0
+        jawDrop = 0
+      } else if (chewCycle < 0.45) {
+        mouthState = 'MOUTH_SMALL'
+        mouthU = 0
+        mouthV = -0.25
+        jawDrop = 0.32
+      } else if (chewCycle < 0.70) {
+        mouthState = 'MOUTH_OPEN'
+        mouthU = 0
+        mouthV = -0.50
+        jawDrop = 0.62
+      } else if (chewCycle < 0.85) {
+        mouthState = 'MOUTH_SMALL'
+        mouthU = 0
+        mouthV = -0.25
+        jawDrop = 0.28
+      } else {
+        mouthState = 'MOUTH_CLOSED'
+        mouthU = 0
+        mouthV = 0
+        jawDrop = 0
+      }
+
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.5, // Comfortable happy chewing eyes
+        targetMouthU: mouthU,
+        targetMouthV: mouthV,
+        mouthState,
+        jawDropTarget: jawDrop,
+      }
+    }
+
+    // 2b. DRINKING (Sipping sequence: small open -> open -> closed -> small open -> closed)
+    if (state === 'DRINKING') {
+      const sipCycle = (time * 3.8) % 1.0
+      let mouthState: MouthState
+      let mouthU: number
+      let mouthV: number
+      let jawDrop: number
+
+      if (sipCycle < 0.25) {
+        mouthState = 'MOUTH_SMALL'
+        mouthU = 0
+        mouthV = -0.25
+        jawDrop = 0.28
+      } else if (sipCycle < 0.50) {
+        mouthState = 'MOUTH_OPEN'
+        mouthU = 0
+        mouthV = -0.50
+        jawDrop = 0.46
+      } else if (sipCycle < 0.70) {
+        mouthState = 'MOUTH_CLOSED'
+        mouthU = 0
+        mouthV = 0
+        jawDrop = 0
+      } else if (sipCycle < 0.85) {
+        mouthState = 'MOUTH_SMALL'
+        mouthU = 0
+        mouthV = -0.25
+        jawDrop = 0.22
+      } else {
+        mouthState = 'MOUTH_CLOSED'
+        mouthU = 0
+        mouthV = 0
+        jawDrop = 0
+      }
+
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.5, // Comfortable happy sipping eyes
+        targetMouthU: mouthU,
+        targetMouthV: mouthV,
+        mouthState,
+        jawDropTarget: jawDrop,
+      }
+    }
+
+    // 3. TALKING (True lip-sync amplitude mapping, no locked smile)
+    if (state === 'TALKING') {
+      let mouthState: MouthState
+      let mouthU: number
+      let mouthV: number
+      let jawDrop: number
+
+      if (volume < 0.08) {
+        mouthState = 'MOUTH_CLOSED'
+        mouthU = 0
+        mouthV = 0
+        jawDrop = 0
+      } else if (volume < 0.25) {
+        mouthState = 'MOUTH_SMALL'
+        mouthU = 0
+        mouthV = -0.25
+        jawDrop = 0.35 * (volume / 0.25)
+      } else if (volume < 0.55) {
+        mouthState = 'MOUTH_OPEN'
+        mouthU = 0
+        mouthV = -0.5
+        jawDrop = 0.35 + 0.35 * ((volume - 0.25) / 0.3)
+      } else {
+        mouthState = 'MOUTH_WIDE'
+        mouthU = 0.5
+        mouthV = 0.0
+        jawDrop = 0.7 + 0.3 * Math.min(1, (volume - 0.55) / 0.45)
+      }
+
+      return {
+        targetEyeU: 0,
+        targetEyeV: 0, // Normal attentive eyes while talking
+        targetMouthU: mouthU,
+        targetMouthV: mouthV,
+        mouthState,
+        jawDropTarget: jawDrop,
+      }
+    }
+
+    // 4. LISTENING (Mouth closed, attentive inquisitive eyes)
+    if (state === 'LISTENING') {
+      return {
+        targetEyeU: 0.5,
+        targetEyeV: -0.5, // Attentive upward/forward gaze
+        targetMouthU: 0,
+        targetMouthV: 0,
+        mouthState: 'MOUTH_CLOSED',
+        jawDropTarget: 0,
+      }
+    }
+
+    // 5. PETTING (Temporary smile & happy eyes only while active)
+    if (state === 'PETTING') {
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.5, // Blissful curved smile arc eyes (^^)
+        targetMouthU: 0.5,
+        targetMouthV: -0.25, // Sweet curved smile
+        mouthState: 'MOUTH_SMILE',
+        jawDropTarget: 0.08,
+      }
+    }
+
+    // 6. HAPPY
+    if (state === 'HAPPY') {
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.5,
+        targetMouthU: 0.5,
+        targetMouthV: -0.25,
+        mouthState: 'MOUTH_SMILE',
+        jawDropTarget: 0.08,
+      }
+    }
+
+    // 7. HIT (Recoil / Dazed)
+    if (state === 'HIT' || this.dazedTimer > 0) {
+      return {
+        targetEyeU: 0,
+        targetEyeV: -0.75, // Droopy dazed comic eyes
+        targetMouthU: 0.5,
+        targetMouthV: 0.0,
+        mouthState: 'MOUTH_WIDE',
+        jawDropTarget: 0.85,
+      }
+    }
+
+    // 8. SOCCER / ANGRY
+    if (state === 'SOCCER') {
+      return {
+        targetEyeU: 0,
+        targetEyeV: 0,
+        targetMouthU: 0.5,
+        targetMouthV: 0.0,
+        mouthState: 'MOUTH_WIDE',
+        jawDropTarget: 0.6,
+      }
+    }
+    if (state === 'ANGRY') {
+      return {
+        targetEyeU: 0.5,
+        targetEyeV: -0.5,
+        targetMouthU: 0,
+        targetMouthV: -0.25,
+        mouthState: 'MOUTH_SMALL',
+        jawDropTarget: 0.3,
+      }
+    }
+
+    // 9. IDLE (Default Baseline: Neutral mouth, normal eyes, zero jaw drop)
+    return {
+      targetEyeU: 0,
+      targetEyeV: 0,
+      targetMouthU: 0,
+      targetMouthV: 0,
+      mouthState: 'MOUTH_CLOSED',
+      jawDropTarget: 0,
+    }
+  }
+
   private updateFacialAnimation(
     state: PetState,
     time: number,
@@ -606,29 +927,16 @@ export class ProceduralAnimator {
       }
     }
 
-    // 3. Eye Awareness UV State Determination (texture_3 atlas)
-    // NORMAL: (0, 0), ATTENTIVE: (+0.50, -0.50), HAPPY: (0, -0.50), DAZED: (0, -0.75), CLOSED: (+0.50, -0.25)
-    let targetEyeU: number
-    let targetEyeV: number
+    // 3. Centralized Facial State Resolution
+    const resolved = this.resolveFacialState(state, time, this.smoothedVolume)
 
+    let targetEyeU = resolved.targetEyeU
+    let targetEyeV = resolved.targetEyeV
+
+    // Natural blinking overrides eye UV to closed eyelids
     if (this.isBlinking) {
       targetEyeU = 0.5
-      targetEyeV = -0.25 // Closed eyelids during blink
-    } else if (state === 'LYING' || state === 'SLEEPING') {
-      targetEyeU = 0.5
-      targetEyeV = -0.25 // Sleeping closed eyes
-    } else if (state === 'LISTENING') {
-      targetEyeU = 0.5
-      targetEyeV = -0.5 // Attentive looking up/forward eyes
-    } else if (state === 'PETTING' || state === 'HAPPY') {
-      targetEyeU = 0
-      targetEyeV = -0.5 // Blissful curved smile arc eyes (^^)
-    } else if (this.dazedTimer > 0 || state === 'HIT') {
-      targetEyeU = 0
-      targetEyeV = -0.75 // Droopy dazed comic eyes
-    } else {
-      targetEyeU = 0
-      targetEyeV = 0 // Normal bright eyes
+      targetEyeV = -0.25
     }
 
     // Apply eye UV coordinate shift
@@ -687,114 +995,11 @@ export class ProceduralAnimator {
       }
     }
 
-    // 5. TRUE MOUTH LIP-SYNC & UV ATLAS SWITCHING (Object_8, texture_2 atlas)
-    // CLOSED: (0, 0), SMALL: (0, -0.25), OPEN: (0, -0.50), WIDE: (+0.50, 0.0), SMILE: (+0.50, -0.25)
-    let targetMouthU: number
-    let targetMouthV: number
-    let jawDropTarget: number
-
-    switch (state) {
-      case 'TALKING': {
-        // Continuous Web Audio amplitude mapping across 4 distinct mouth states
-        const vol = this.smoothedVolume
-        if (vol < 0.08) {
-          this.currentMouthState = 'MOUTH_CLOSED'
-          targetMouthU = 0
-          targetMouthV = 0
-          jawDropTarget = 0
-        } else if (vol < 0.25) {
-          this.currentMouthState = 'MOUTH_SMALL'
-          targetMouthU = 0
-          targetMouthV = -0.25
-          jawDropTarget = 0.35 * (vol / 0.25)
-        } else if (vol < 0.55) {
-          this.currentMouthState = 'MOUTH_OPEN'
-          targetMouthU = 0
-          targetMouthV = -0.5
-          jawDropTarget = 0.35 + 0.35 * ((vol - 0.25) / 0.3)
-        } else {
-          this.currentMouthState = 'MOUTH_WIDE'
-          targetMouthU = 0.5
-          targetMouthV = 0.0
-          jawDropTarget = 0.7 + 0.3 * Math.min(1, (vol - 0.55) / 0.45)
-        }
-        break
-      }
-
-      case 'PETTING':
-      case 'HAPPY': {
-        this.currentMouthState = 'MOUTH_CLOSED'
-        targetMouthU = 0.5
-        targetMouthV = -0.25 // Sweet curved smile
-        jawDropTarget = 0.08
-        break
-      }
-
-      case 'EATING': {
-        const chewOpen = Math.sin(time * 13) > 0.1
-        if (chewOpen) {
-          this.currentMouthState = 'MOUTH_OPEN'
-          targetMouthU = 0
-          targetMouthV = -0.5
-          jawDropTarget = 0.65
-        } else {
-          this.currentMouthState = 'MOUTH_CLOSED'
-          targetMouthU = 0
-          targetMouthV = 0
-          jawDropTarget = 0.05
-        }
-        break
-      }
-
-      case 'DRINKING': {
-        const sipOpen = Math.sin(time * 10) > 0.1
-        if (sipOpen) {
-          this.currentMouthState = 'MOUTH_SMALL'
-          targetMouthU = 0
-          targetMouthV = -0.25
-          jawDropTarget = 0.4
-        } else {
-          this.currentMouthState = 'MOUTH_CLOSED'
-          targetMouthU = 0
-          targetMouthV = 0
-          jawDropTarget = 0.05
-        }
-        break
-      }
-
-      case 'HIT': {
-        this.currentMouthState = 'MOUTH_WIDE'
-        targetMouthU = 0.5
-        targetMouthV = 0.0
-        jawDropTarget = 0.85
-        break
-      }
-
-      case 'SOCCER': {
-        this.currentMouthState = 'MOUTH_WIDE'
-        targetMouthU = 0.5
-        targetMouthV = 0.0
-        jawDropTarget = 0.6
-        break
-      }
-
-      case 'FALLING': {
-        this.currentMouthState = 'MOUTH_SMALL'
-        targetMouthU = 0
-        targetMouthV = -0.25
-        jawDropTarget = 0.35
-        break
-      }
-
-      default: {
-        // LISTENING, IDLE, SLEEPING, LYING, RECOVERING: mouth remains naturally closed
-        this.currentMouthState = 'MOUTH_CLOSED'
-        targetMouthU = 0
-        targetMouthV = 0
-        jawDropTarget = 0
-        break
-      }
-    }
+    // 5. TRUE MOUTH ANIMATION & UV ATLAS SWITCHING (Object_8, texture_2 atlas)
+    this.currentMouthState = resolved.mouthState
+    const targetMouthU = resolved.targetMouthU
+    const targetMouthV = resolved.targetMouthV
+    const jawDropTarget = resolved.jawDropTarget
 
     // Apply mouth UV atlas coordinate shift
     if (this.mouthMesh && this.initialMouthUV) {
@@ -815,6 +1020,9 @@ export class ProceduralAnimator {
       jawDropTarget,
       1 - Math.exp(-24 * delta)
     )
+    if (jawDropTarget === 0 && this.mouthOpenProgress < 0.005) {
+      this.mouthOpenProgress = 0
+    }
 
     // Articulate lower lip & jaw vertices for physical opening
     if (this.mouthMesh && this.initialMouthY && this.initialMouthZ) {
@@ -822,7 +1030,10 @@ export class ProceduralAnimator {
       for (let i = 0; i < pos.count; i++) {
         const origY = this.initialMouthY[i]
         const origZ = this.initialMouthZ[i]
-        if (origY <= 33.85) {
+        if (this.mouthOpenProgress === 0) {
+          pos.setY(i, origY)
+          pos.setZ(i, origZ)
+        } else if (origY <= 33.85) {
           const drop = this.mouthOpenProgress * (33.85 - origY + 0.8) * 0.7
           pos.setY(i, origY - drop)
           pos.setZ(i, origZ - this.mouthOpenProgress * 0.3)

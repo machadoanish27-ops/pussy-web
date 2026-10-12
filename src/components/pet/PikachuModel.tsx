@@ -4,6 +4,7 @@ import { useGLTF } from '@react-three/drei'
 import * as THREE from 'three'
 import type { PetState, HitLocation } from '../../types'
 import type { ProceduralAnimator } from '../../systems/pet/ProceduralAnimator.ts'
+import { SoundEffects } from '../../systems/audio/SoundEffects.ts'
 
 interface PikachuModelProps {
   state: PetState
@@ -52,6 +53,7 @@ export const PikachuModel = ({
     lastDir: number
     reversals: number
     isPetting: boolean
+    petSwipeTriggered: boolean
   } | null>(null)
 
   // Configure shadows and bind skeleton to procedural animator
@@ -116,6 +118,9 @@ export const PikachuModel = ({
         ref={rootGroupRef}
         onPointerDown={(e) => {
           e.stopPropagation()
+          // Synchronously unlock/resume Web Audio context on user gesture for iOS Safari
+          SoundEffects.ensureAudioUnlocked()
+
           const loc = classifyHitLocation(e.object.name, e.point)
           pointerStartRef.current = {
             x: e.clientX,
@@ -126,6 +131,7 @@ export const PikachuModel = ({
             lastDir: 0,
             reversals: 0,
             isPetting: false,
+            petSwipeTriggered: false,
           }
         }}
         onPointerMove={(e) => {
@@ -136,10 +142,13 @@ export const PikachuModel = ({
           const totalDy = e.clientY - tracker.y
           const dy = e.clientY - tracker.lastY
 
-          // 1. Natural top-to-bottom sliding stroke (> 22px downward)
-          if (totalDy > 22 && !tracker.isPetting) {
+          // 1. Natural top-to-bottom sliding stroke (> 20px downward)
+          if (totalDy > 20 && !tracker.isPetting) {
             tracker.isPetting = true
-            onPetSwipe?.()
+            if (!tracker.petSwipeTriggered) {
+              tracker.petSwipeTriggered = true
+              onPetSwipe?.()
+            }
             const yFactor = THREE.MathUtils.clamp(totalDy / 80, -1, 1)
             animator.setPettingFollow(yFactor, true)
           }
@@ -154,10 +163,11 @@ export const PikachuModel = ({
             tracker.lastY = e.clientY
 
             if (tracker.reversals >= 2) {
-              if (!tracker.isPetting) {
-                tracker.isPetting = true
+              tracker.isPetting = true
+              if (!tracker.petSwipeTriggered) {
+                tracker.petSwipeTriggered = true
+                onPetSwipe?.()
               }
-              onPetSwipe?.()
               const yFactor = THREE.MathUtils.clamp(dy / 40, -1, 1)
               animator.setPettingFollow(yFactor, true)
             }
@@ -168,6 +178,7 @@ export const PikachuModel = ({
           e.stopPropagation()
 
           const tracker = pointerStartRef.current
+          const wasPetting = tracker.isPetting
           const dist = Math.hypot(
             e.clientX - tracker.x,
             e.clientY - tracker.y
@@ -177,7 +188,7 @@ export const PikachuModel = ({
           animator.setPettingFollow(0, false)
 
           // If not a petting swipe and tap was crisp, trigger deliberate location hit!
-          if (!tracker.isPetting && dist < 18 && duration < 380) {
+          if (!wasPetting && dist < 18 && duration < 380) {
             if (onHitLocation) {
               onHitLocation(tracker.location)
             } else {

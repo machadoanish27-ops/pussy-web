@@ -49,7 +49,7 @@ export function App() {
   const lastHitTimeRef = useRef(0)
   const lastPetTimeRef = useRef(0)
   const lastPetVocalTimeRef = useRef(0)
-  const petVocalCooldownRef = useRef(3000)
+  const hasPettedOnceRef = useRef(false)
   const lastInteractionTimeRef = useRef(0)
   const hitCountsByLocationRef = useRef<Record<HitLocation, number>>({
     HEAD: 0,
@@ -123,6 +123,8 @@ export function App() {
           if (current === 'TALKING' || current === 'LISTENING') {
             stateMachine.setState('IDLE', true)
           }
+          setVoiceVolume(0)
+          proceduralAnimator.resetFacialOverrides()
         }
       },
       onVolumeChange: (vol) => {
@@ -131,9 +133,11 @@ export function App() {
       onPlaybackComplete: () => {
         statsManager.talk((updated) => setStats(updated))
         stateMachine.setState('IDLE', true)
+        setVoiceVolume(0)
+        proceduralAnimator.resetFacialOverrides()
       },
     })
-  }, [stateMachine, statsManager])
+  }, [stateMachine, statsManager, proceduralAnimator])
 
   // Cleanup on unmount
   useEffect(() => {
@@ -270,7 +274,7 @@ export function App() {
     [stateMachine, statsManager, proceduralAnimator, spawnDamageEffect]
   )
 
-  /** Continuous Vertical Petting Gesture & Pika Pika Vocalization */
+  /** Continuous Vertical Petting Gesture & Guaranteed Pika Pika Vocalization */
   const handlePetSwipe = useCallback(() => {
     if (stateMachine.isLocked()) return
 
@@ -281,25 +285,30 @@ export function App() {
     if (now - lastPetTimeRef.current < 400) return
     lastPetTimeRef.current = now
 
-    SoundEffects.playPurr()
     statsManager.pet((updated) => setStats(updated))
-    stateMachine.triggerTemporaryState('PETTING', 1200)
+    stateMachine.triggerTemporaryState('PETTING', 1200, () => {
+      proceduralAnimator.resetFacialOverrides()
+    })
 
     // Spawn floating heart particle
     spawnDamageEffect('HEART_FLOAT', 1500)
 
-    // Occasional synthesized "pika pika" vocal reaction on 2.6s - 4.4s cooldown
-    const isVoiceActive = voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
-    if (!isVoiceActive && (now - lastPetVocalTimeRef.current >= petVocalCooldownRef.current)) {
+    // First valid completed pet: GUARANTEED immediate audible "Pika Pika"!
+    // Subsequent pets: one every >=3s cooldown; otherwise gentle purr
+    const isVoiceActive =
+      voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
+    const canPlayPika =
+      !isVoiceActive &&
+      (!hasPettedOnceRef.current || now - lastPetVocalTimeRef.current >= 3000)
+
+    if (canPlayPika) {
+      hasPettedOnceRef.current = true
       lastPetVocalTimeRef.current = now
-      petVocalCooldownRef.current = 2600 + Math.random() * 1600 // 2.6s to 4.2s natural cooldown
-      setTimeout(() => {
-        if (voiceStatus === 'idle') {
-          SoundEffects.playPettingPika()
-        }
-      }, 160)
+      SoundEffects.playPettingPika()
+    } else {
+      SoundEffects.playPurr()
     }
-  }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus])
+  }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus, proceduralAnimator])
 
   /** Fallback Pet Tap */
   const handlePetTap = useCallback(() => {
@@ -336,9 +345,10 @@ export function App() {
     setActiveFood('milk')
     setFoodProgress(0)
     SoundEffects.playDrink()
-    stateMachine.triggerTemporaryState('DRINKING', 2200, () => {
+    stateMachine.triggerTemporaryState('DRINKING', 2600, () => {
       setActiveFood(null)
       setFoodProgress(0)
+      proceduralAnimator.resetFacialOverrides()
     })
 
     statsManager.feedMilk((updated) => setStats(updated))
@@ -347,11 +357,16 @@ export function App() {
     const startTime = performance.now()
     const interval = setInterval(() => {
       const elapsed = performance.now() - startTime
-      const progress = Math.min(1, elapsed / 2200)
+      const progress = Math.min(1, elapsed / 2600)
       setFoodProgress(progress)
-      if (progress >= 1) clearInterval(interval)
+      if (progress >= 1) {
+        clearInterval(interval)
+        setActiveFood(null)
+        setFoodProgress(0)
+        proceduralAnimator.resetFacialOverrides()
+      }
     }, 50)
-  }, [stateMachine, activeFood, statsManager])
+  }, [stateMachine, activeFood, statsManager, proceduralAnimator])
 
   /** Feed Fish (🐟) */
   const handleFeedFish = useCallback(() => {
@@ -361,9 +376,10 @@ export function App() {
     setActiveFood('fish')
     setFoodProgress(0)
     SoundEffects.playEat()
-    stateMachine.triggerTemporaryState('EATING', 2400, () => {
+    stateMachine.triggerTemporaryState('EATING', 2800, () => {
       setActiveFood(null)
       setFoodProgress(0)
+      proceduralAnimator.resetFacialOverrides()
     })
 
     statsManager.feedFish((updated) => setStats(updated))
@@ -372,11 +388,16 @@ export function App() {
     const startTime = performance.now()
     const interval = setInterval(() => {
       const elapsed = performance.now() - startTime
-      const progress = Math.min(1, elapsed / 2400)
+      const progress = Math.min(1, elapsed / 2800)
       setFoodProgress(progress)
-      if (progress >= 1) clearInterval(interval)
+      if (progress >= 1) {
+        clearInterval(interval)
+        setActiveFood(null)
+        setFoodProgress(0)
+        proceduralAnimator.resetFacialOverrides()
+      }
     }, 50)
-  }, [stateMachine, activeFood, statsManager])
+  }, [stateMachine, activeFood, statsManager, proceduralAnimator])
 
   /** Soccer mini-game toggle (⚽) */
   const handleToggleSoccer = useCallback(() => {
