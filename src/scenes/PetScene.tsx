@@ -3,7 +3,11 @@ import { PikachuModel } from '../components/pet/PikachuModel.tsx'
 import { FoodProps } from '../components/pet/FoodProps.tsx'
 import { SoccerFieldProps } from '../components/pet/SoccerFieldProps.tsx'
 import { PlacementReticle } from '../components/ar/PlacementReticle.tsx'
-import type { PetState, FoodType } from '../types'
+import {
+  CartoonDamageOverlay,
+  type ActiveDamageEffect,
+} from '../components/pet/CartoonDamageOverlay.tsx'
+import type { PetState, FoodType, HitLocation } from '../types'
 import type { ProceduralAnimator } from '../systems/pet/ProceduralAnimator.ts'
 
 interface PetSceneProps {
@@ -16,8 +20,11 @@ interface PetSceneProps {
   petPosition: [number, number, number]
   petRotationY: number
   petScale: number
+  damageEffects: ActiveDamageEffect[]
   isAR: boolean
   isPlaced: boolean
+  onHitLocation?: (location: HitLocation) => void
+  onPetSwipe?: () => void
   onTapPet?: () => void
   onPlaceReticle?: () => void
   onScoreSoccerGoal?: () => void
@@ -29,7 +36,7 @@ interface PetSceneProps {
  *
  * Staging 3D environment coordinating Pikachu, Food Props,
  * Soccer Mini-Game Arena, AR Surface Placement Reticle, lighting,
- * and ground contact shadows anchored to Pikachu.
+ * cartoon damage overlays, and ground contact shadows anchored to Pikachu.
  */
 export const PetScene = ({
   state,
@@ -41,8 +48,11 @@ export const PetScene = ({
   petPosition,
   petRotationY,
   petScale,
+  damageEffects,
   isAR,
   isPlaced,
+  onHitLocation,
+  onPetSwipe,
   onTapPet,
   onPlaceReticle,
   onScoreSoccerGoal,
@@ -84,7 +94,17 @@ export const PetScene = ({
         position={petPosition}
         rotationY={petRotationY}
         scale={petScale}
+        onHitLocation={onHitLocation}
+        onPetSwipe={onPetSwipe}
         onTap={onTapPet}
+      />
+
+      {/* 3D Cartoon Damage & Effects (Bandages, Dizzy Stars, Hearts) */}
+      <CartoonDamageOverlay
+        effects={damageEffects}
+        petPosition={petPosition}
+        petRotationY={petRotationY}
+        petScale={petScale}
       />
 
       {/* Interactive 3D Food Props (Milk Bowl / Fish) */}
@@ -93,6 +113,7 @@ export const PetScene = ({
         progress={foodProgress}
         petPosition={petPosition}
         petRotationY={petRotationY}
+        petScale={petScale}
       />
 
       {/* 3D Head Soccer Arena & Ball */}

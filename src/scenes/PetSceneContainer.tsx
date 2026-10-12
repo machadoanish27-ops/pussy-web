@@ -4,7 +4,8 @@ import * as THREE from 'three'
 import { PetScene } from './PetScene.tsx'
 import { ARCameraBackground } from '../components/ar/ARCameraBackground.tsx'
 import { ARControlOverlay } from '../components/ar/ARControlOverlay.tsx'
-import type { AppMode, PetState, FoodType } from '../types'
+import type { ActiveDamageEffect } from '../components/pet/CartoonDamageOverlay.tsx'
+import type { AppMode, PetState, FoodType, HitLocation } from '../types'
 import type { ProceduralAnimator } from '../systems/pet/ProceduralAnimator.ts'
 
 interface PetSceneContainerProps {
@@ -16,6 +17,9 @@ interface PetSceneContainerProps {
   foodProgress: number
   soccerActive: boolean
   cameraStream: MediaStream | null
+  damageEffects?: ActiveDamageEffect[]
+  onHitLocation?: (location: HitLocation) => void
+  onPetSwipe?: () => void
   onTapPet?: () => void
   onScoreSoccerGoal?: () => void
   onTriggerHeader?: () => void
@@ -87,6 +91,7 @@ const InteractiveGround = ({
  * - Ground plane raycasting & surface anchoring
  * - AR placement reticle & one-handed quick controls
  * - Responsive camera framing for normal 3D and AR modes
+ * - Location-aware hit dispatching and continuous petting gestures
  */
 export const PetSceneContainer = ({
   mode,
@@ -97,6 +102,9 @@ export const PetSceneContainer = ({
   foodProgress,
   soccerActive,
   cameraStream,
+  damageEffects = [],
+  onHitLocation,
+  onPetSwipe,
   onTapPet,
   onScoreSoccerGoal,
   onTriggerHeader,
@@ -108,6 +116,7 @@ export const PetSceneContainer = ({
   const [userRotation, setUserRotation] = useState<number>(0)
   const [scaleMultiplier, setScaleMultiplier] = useState<number>(1.0)
   const [isPlaced, setIsPlaced] = useState<boolean>(true)
+  const [hasInteracted, setHasInteracted] = useState<boolean>(false)
 
   // Derive effective world transforms cleanly during render
   const baseScale = mode === 'ar' ? 0.017 : 0.034
@@ -140,6 +149,7 @@ export const PetSceneContainer = ({
 
     const onTouchStart = (e: TouchEvent) => {
       if (e.touches.length === 2) {
+        setHasInteracted(true)
         const t1 = e.touches[0]
         const t2 = e.touches[1]
         startDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
@@ -150,6 +160,7 @@ export const PetSceneContainer = ({
     const onTouchMove = (e: TouchEvent) => {
       if (e.touches.length === 2 && startDist > 0) {
         if (e.cancelable) e.preventDefault()
+        setHasInteracted(true)
         const t1 = e.touches[0]
         const t2 = e.touches[1]
         const currDist = Math.hypot(t2.clientX - t1.clientX, t2.clientY - t1.clientY)
@@ -190,6 +201,7 @@ export const PetSceneContainer = ({
   // Ground drag repositioning
   const handleDragPoint = useCallback(
     (point: THREE.Vector3) => {
+      setHasInteracted(true)
       setUserOffset([point.x - basePos[0], point.z - basePos[2]])
       if (mode === 'ar') {
         setIsPlaced(true)
@@ -201,6 +213,7 @@ export const PetSceneContainer = ({
   // Ground tap anchoring
   const handleTapPoint = useCallback(
     (point: THREE.Vector3) => {
+      setHasInteracted(true)
       if (mode === 'ar') {
         setUserOffset([point.x - basePos[0], point.z - basePos[2]])
         setIsPlaced(true)
@@ -211,22 +224,27 @@ export const PetSceneContainer = ({
 
   // AR quick action handlers
   const handleRotateLeft = useCallback(() => {
+    setHasInteracted(true)
     setUserRotation((prev) => prev + Math.PI / 4)
   }, [])
 
   const handleRotateRight = useCallback(() => {
+    setHasInteracted(true)
     setUserRotation((prev) => prev - Math.PI / 4)
   }, [])
 
   const handleZoomIn = useCallback(() => {
+    setHasInteracted(true)
     setScaleMultiplier((prev) => Math.min(2.5, prev * 1.2))
   }, [])
 
   const handleZoomOut = useCallback(() => {
+    setHasInteracted(true)
     setScaleMultiplier((prev) => Math.max(0.4, prev * 0.8))
   }, [])
 
   const handleResetTransform = useCallback(() => {
+    setHasInteracted(true)
     setScaleMultiplier(1.0)
     setUserOffset([0, 0])
     setUserRotation(0)
@@ -250,6 +268,7 @@ export const PetSceneContainer = ({
       {mode === 'ar' && (
         <ARControlOverlay
           isPlaced={isPlaced}
+          hasInteracted={hasInteracted}
           onRotateLeft={handleRotateLeft}
           onRotateRight={handleRotateRight}
           onZoomIn={handleZoomIn}
@@ -297,8 +316,11 @@ export const PetSceneContainer = ({
             petPosition={petPosition}
             petRotationY={userRotation}
             petScale={petScale}
+            damageEffects={damageEffects}
             isAR={mode === 'ar'}
             isPlaced={isPlaced}
+            onHitLocation={onHitLocation}
+            onPetSwipe={onPetSwipe}
             onTapPet={onTapPet}
             onPlaceReticle={() => setIsPlaced(true)}
             onScoreSoccerGoal={onScoreSoccerGoal}

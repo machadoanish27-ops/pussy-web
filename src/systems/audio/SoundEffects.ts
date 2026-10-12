@@ -276,6 +276,180 @@ class SoundEffectsEngine {
     osc.start(now)
     osc.stop(now + 0.15)
   }
+
+  /**
+   * Synthesized cute original vocalization: "Pi-ka!"
+   * Two cheerful syllables using formant-filtered sine/triangle sweeps.
+   */
+  public playPika(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // Syllable 1: "Pi-" (high rising chirp)
+    const osc1 = ctx.createOscillator()
+    const gain1 = ctx.createGain()
+    osc1.type = 'triangle'
+    osc1.frequency.setValueAtTime(950, now)
+    osc1.frequency.exponentialRampToValueAtTime(1420, now + 0.08)
+
+    gain1.gain.setValueAtTime(0.22, now)
+    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
+
+    osc1.connect(gain1)
+    gain1.connect(ctx.destination)
+    osc1.start(now)
+    osc1.stop(now + 0.08)
+
+    // Syllable 2: "-ka!" (punchy cute drop)
+    const t2 = now + 0.09
+    const osc2 = ctx.createOscillator()
+    const gain2 = ctx.createGain()
+    osc2.type = 'sine'
+    osc2.frequency.setValueAtTime(840, t2)
+    osc2.frequency.exponentialRampToValueAtTime(510, t2 + 0.12)
+
+    gain2.gain.setValueAtTime(0.26, t2)
+    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.12)
+
+    osc2.connect(gain2)
+    gain2.connect(ctx.destination)
+    osc2.start(t2)
+    osc2.stop(t2 + 0.12)
+  }
+
+  /**
+   * Synthesized enthusiastic double chirp: "Pi-ka... Pi-ka!"
+   */
+  public playPikaPika(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+
+    this.playPika()
+    setTimeout(() => {
+      this.playPika()
+    }, 280)
+  }
+
+  /** Curious high-pitched squeak / chirp */
+  public playCurious(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(620, now)
+    osc.frequency.exponentialRampToValueAtTime(1260, now + 0.16)
+
+    gain.gain.setValueAtTime(0.2, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.16)
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.16)
+  }
+
+  /** Soft rhythmic purr / chirp for continuous petting */
+  public playPurr(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.type = 'triangle'
+    osc.frequency.setValueAtTime(360, now)
+    osc.frequency.exponentialRampToValueAtTime(520, now + 0.14)
+
+    gain.gain.setValueAtTime(0.16, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.14)
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.14)
+  }
+
+  /** Crisp comical cartoon slap / impact */
+  public playSlap(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // Snappy mid-high impact
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.type = 'sawtooth'
+    osc.frequency.setValueAtTime(320, now)
+    osc.frequency.exponentialRampToValueAtTime(80, now + 0.15)
+
+    gain.gain.setValueAtTime(0.35, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.15)
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.15)
+  }
+
+  /** Wobbly comical dazed sound with vibrato */
+  public playDizzy(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    const osc = ctx.createOscillator()
+    const gain = ctx.createGain()
+
+    osc.type = 'sine'
+    osc.frequency.setValueAtTime(540, now)
+    // Wobble down
+    for (let i = 0; i < 6; i++) {
+      const stepTime = now + i * 0.08
+      const freq = 500 - i * 50 + (i % 2 === 0 ? 40 : -40)
+      osc.frequency.setValueAtTime(freq, stepTime)
+    }
+
+    gain.gain.setValueAtTime(0.22, now)
+    gain.gain.exponentialRampToValueAtTime(0.001, now + 0.5)
+
+    osc.connect(gain)
+    gain.connect(ctx.destination)
+    osc.start(now)
+    osc.stop(now + 0.5)
+  }
+
+  /** Heavy cartoon combo impact burst */
+  public playCombo(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // Chord + punch
+    const chord = [340, 520, 780]
+    chord.forEach((freq) => {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+
+      osc.type = 'sawtooth'
+      osc.frequency.setValueAtTime(freq, now)
+      osc.frequency.exponentialRampToValueAtTime(freq * 0.4, now + 0.3)
+
+      gain.gain.setValueAtTime(0.25, now)
+      gain.gain.exponentialRampToValueAtTime(0.001, now + 0.3)
+
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.start(now)
+      osc.stop(now + 0.3)
+    })
+  }
 }
 
 export const SoundEffects = new SoundEffectsEngine()

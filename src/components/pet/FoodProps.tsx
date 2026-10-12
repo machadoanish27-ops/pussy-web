@@ -1,82 +1,133 @@
 import { useRef } from 'react'
 import { useFrame } from '@react-three/fiber'
-import type * as THREE from 'three'
+import * as THREE from 'three'
 import type { FoodType } from '../../types'
 
 interface FoodPropsProps {
   food: FoodType
-  progress: number // 0 (just served) to 1 (fully consumed)
+  progress: number // 0 (served) to 1 (consumed)
   petPosition?: [number, number, number]
   petRotationY?: number
+  petScale?: number
 }
 
 /**
- * 3D Food Props (Milk Bowl & Stylized Fish)
- * Appears dynamically in front of Pikachu during feeding interactions,
- * anchored to Pikachu's current world placement and rotation.
+ * 3D Food Props (Milk Bowl & Stylized Fresh Fish)
+ *
+ * Implements smooth cartoon presentation on mobile viewports:
+ * 1. Spawns cleanly at ground level in front of Pikachu.
+ * 2. Floats up toward Pikachu's mouth as chewing / sipping begins.
+ * 3. Shrinks into the mouth during active consumption.
+ * 4. Cleans up cleanly without clipping or dock overlap.
  */
 export const FoodProps = ({
   food,
   progress,
   petPosition = [0, -0.69, 0],
   petRotationY = 0,
+  petScale = 0.034,
 }: FoodPropsProps) => {
   const groupRef = useRef<THREE.Group>(null)
 
+  // Scale multiplier relative to default pet size
+  const relativeScale = petScale / 0.034
+
+  // Float trajectory:
+  // Starts on floor (y = -0.68), rises toward mouth (y = -0.32) during eating, then is consumed
+  let currentY: number
+  let currentTilt: number
+  let scale: number
+
+  if (progress < 0.2) {
+    // Pop in on floor
+    const enter = progress / 0.2
+    scale = THREE.MathUtils.lerp(0.01, 1.0, enter)
+    currentY = -0.68
+    currentTilt = 0
+  } else if (progress < 0.75) {
+    // Float up toward mouth
+    const floatProgress = (progress - 0.2) / 0.55
+    currentY = THREE.MathUtils.lerp(-0.68, -0.32, floatProgress)
+    currentTilt = THREE.MathUtils.lerp(0, -0.28, floatProgress)
+    scale = 1.0
+  } else {
+    // Consumed into mouth
+    const consumeProgress = (progress - 0.75) / 0.25
+    currentY = -0.32
+    currentTilt = -0.28
+    scale = Math.max(0, 1.0 - consumeProgress)
+  }
+
   useFrame(() => {
     if (!groupRef.current) return
-    // Scale down gently as food is consumed
-    const s = Math.max(0, 1 - progress * 0.95)
+    const s = scale * relativeScale
     groupRef.current.scale.set(s, s, s)
   })
 
   if (!food) return null
 
-  // Compute position 0.42 units in front of Pikachu based on rotation
-  const foodX = petPosition[0] + Math.sin(petRotationY) * 0.42
-  const foodZ = petPosition[2] + Math.cos(petRotationY) * 0.42
+  // Anchored in front of Pikachu based on rotation
+  const forwardDist = 0.38 * relativeScale
+  const foodX = petPosition[0] + Math.sin(petRotationY) * forwardDist
+  const foodZ = petPosition[2] + Math.cos(petRotationY) * forwardDist
 
   return (
     <group
       ref={groupRef}
-      position={[foodX, -0.68, foodZ]}
-      rotation={[0, petRotationY, 0]}
+      position={[foodX, currentY, foodZ]}
+      rotation={[currentTilt, petRotationY, 0]}
     >
       {food === 'milk' ? (
-        // Milk Bowl
+        // Stylized Cute Milk Bowl
         <group>
           {/* Bowl Dish */}
-          <mesh castShadow receiveShadow position={[0, 0.05, 0]}>
-            <cylinderGeometry args={[0.22, 0.15, 0.1, 24]} />
-            <meshStandardMaterial color="#3b82f6" roughness={0.3} metalness={0.1} />
+          <mesh castShadow receiveShadow position={[0, 0.04, 0]}>
+            <cylinderGeometry args={[0.14, 0.09, 0.08, 20]} />
+            <meshStandardMaterial
+              color="#3b82f6"
+              roughness={0.25}
+              metalness={0.1}
+            />
           </mesh>
           {/* White Milk Surface */}
-          <mesh position={[0, 0.08, 0]}>
-            <cylinderGeometry args={[0.2, 0.2, 0.04, 24]} />
-            <meshStandardMaterial color="#ffffff" roughness={0.1} />
+          <mesh position={[0, 0.065, 0]}>
+            <cylinderGeometry args={[0.125, 0.125, 0.03, 20]} />
+            <meshStandardMaterial
+              color="#ffffff"
+              roughness={0.1}
+              emissive="#ffffff"
+              emissiveIntensity={0.08}
+            />
           </mesh>
         </group>
       ) : (
-        // Fresh Fish on Plate
+        // Fresh Cartoon Fish on Plate
         <group>
-          {/* Plate */}
-          <mesh castShadow receiveShadow position={[0, 0.02, 0]}>
-            <cylinderGeometry args={[0.28, 0.22, 0.04, 24]} />
-            <meshStandardMaterial color="#f1f5f9" roughness={0.2} />
+          {/* Small Serving Plate */}
+          <mesh castShadow receiveShadow position={[0, 0.015, 0]}>
+            <cylinderGeometry args={[0.18, 0.14, 0.025, 20]} />
+            <meshStandardMaterial color="#f8fafc" roughness={0.2} />
           </mesh>
           {/* Fish Body */}
-          <mesh castShadow position={[0, 0.06, 0]} rotation={[0, Math.PI / 6, 0]}>
-            <capsuleGeometry args={[0.06, 0.22, 12, 16]} />
+          <mesh
+            castShadow
+            position={[0, 0.045, 0]}
+            rotation={[0, Math.PI / 6, 0]}
+          >
+            <capsuleGeometry args={[0.04, 0.14, 10, 14]} />
             <meshStandardMaterial color="#f97316" roughness={0.3} />
           </mesh>
           {/* Fish Tail */}
-          <mesh position={[-0.18, 0.06, -0.05]} rotation={[0, 0, Math.PI / 4]}>
-            <coneGeometry args={[0.08, 0.12, 8]} />
+          <mesh
+            position={[-0.12, 0.045, -0.03]}
+            rotation={[0, 0, Math.PI / 4]}
+          >
+            <coneGeometry args={[0.05, 0.08, 8]} />
             <meshStandardMaterial color="#ea580c" roughness={0.3} />
           </mesh>
           {/* Fish Eye */}
-          <mesh position={[0.12, 0.09, 0.04]}>
-            <sphereGeometry args={[0.02, 8, 8]} />
+          <mesh position={[0.08, 0.065, 0.03]}>
+            <sphereGeometry args={[0.014, 8, 8]} />
             <meshStandardMaterial color="#0f172a" roughness={0.1} />
           </mesh>
         </group>

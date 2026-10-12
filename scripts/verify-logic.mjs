@@ -1,11 +1,13 @@
 /**
  * Comprehensive Automated System Test Suite for PUSSY Web
  * Validates:
- * 1. State machine atomic transitions
- * 2. 10 consecutive Hit -> Fall -> Lie -> Stand -> Recover cycles
- * 3. Stat clamping and economy rules
- * 4. Save/Load persistence and corruption tolerance
- * 5. Procedural animator state safety
+ * 1. State machine atomic transitions & locking
+ * 2. Location-aware hits, combo escalation, and damage reactions
+ * 3. 10 consecutive Hit -> Fall -> Lie -> Stand -> Recover cycles
+ * 4. Petting gestures and temporary actions
+ * 5. Procedural animator state safety & damage cleanup
+ * 6. Stat clamping and economy rules
+ * 7. Save/Load persistence and corruption tolerance
  */
 
 import assert from 'node:assert/strict'
@@ -79,8 +81,30 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
   assert.equal(loaded.happiness, 90, 'Corrupted data should safely fallback to default happiness')
   console.log('  ✅ Corruption fallback passed.')
 
-  // 3. TEST PET STATE MACHINE & 10 HIT/RECOVERY CYCLES
-  console.log('\nTest 3: PetStateMachine Hit -> Fall -> Lie -> Stand -> Recover (10 Cycles)')
+  // 3. TEST PROCEDURAL ANIMATOR HIT REACTIONS & DAMAGE CLEANUP
+  console.log('\nTest 3: ProceduralAnimator Location Hits & Idle Vocalization')
+  const { ProceduralAnimator } = await import('../src/systems/pet/ProceduralAnimator.ts')
+  const animator = new ProceduralAnimator()
+
+  animator.triggerLocationHit('LEFT_CHEEK', 1)
+  assert.equal(animator.getActiveHitLocation(), 'LEFT_CHEEK')
+  assert.equal(animator.isDazed(), false)
+
+  animator.triggerLocationHit('HEAD', 2)
+  assert.equal(animator.getActiveHitLocation(), 'HEAD')
+  assert.equal(animator.isDazed(), true, 'Head hit should trigger dazed state')
+
+  animator.clearDamageEffects()
+  assert.equal(animator.isDazed(), false, 'clearDamageEffects should clear dazed state')
+  assert.equal(animator.getActiveHitLocation(), null)
+
+  let vocalTriggered = false
+  animator.checkIdleVocalization(100, false, () => { vocalTriggered = true })
+  assert.equal(vocalTriggered, true, 'Idle vocalization triggers after inactivity')
+  console.log('  ✅ ProceduralAnimator location hits & damage cleanup passed.')
+
+  // 4. TEST PET STATE MACHINE & 10 HIT/RECOVERY CYCLES
+  console.log('\nTest 4: PetStateMachine Hit -> Fall -> Lie -> Stand -> Recover (10 Cycles)')
   const { PetStateMachine } = await import('../src/systems/pet/PetStateMachine.ts')
   const sm = new PetStateMachine()
 
@@ -132,7 +156,7 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
     process.stdout.write('-> IDLE ✅\n')
   }
 
-  console.log('\n🎉 ALL 10 CONSECUTIVE HIT/FALL/RECOVERY CYCLES PASSED PERFECTLY!\n')
+  console.log('\n🎉 ALL TESTS INCLUDING 10 CONSECUTIVE HIT/FALL/RECOVERY CYCLES PASSED PERFECTLY!\n')
   process.exit(0)
 }).catch((err) => {
   console.error('❌ Test failed:', err)

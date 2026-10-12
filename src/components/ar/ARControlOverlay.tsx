@@ -1,7 +1,9 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 
 interface ARControlOverlayProps {
   isPlaced: boolean
+  isWebXR?: boolean
+  hasInteracted?: boolean
   onRotateLeft: () => void
   onRotateRight: () => void
   onZoomIn: () => void
@@ -14,13 +16,17 @@ interface ARControlOverlayProps {
  * ARControlOverlay
  *
  * Provides on-screen guidance and one-handed quick controls for AR Mode:
- * - Placement / drag / pinch guidance banner
- * - Quick rotate buttons (360° rotation)
- * - Quick scale / zoom buttons
- * - Re-center & re-anchor button
+ * - Dynamic 3-stage instruction banner:
+ *     1. "Move phone to detect floor surface"
+ *     2. "Tap floor to place Pikachu"
+ *     3. "Drag • Pinch • Rotate" (auto-hides after interaction)
+ * - Honest capability tag: WebXR vs Camera Passthrough (Floor Anchored)
+ * - One-handed quick action dock: 360° rotate, size, center, relocate
  */
 export const ARControlOverlay = ({
   isPlaced,
+  isWebXR = false,
+  hasInteracted = false,
   onRotateLeft,
   onRotateRight,
   onZoomIn,
@@ -30,6 +36,16 @@ export const ARControlOverlay = ({
 }: ARControlOverlayProps) => {
   const [showBanner, setShowBanner] = useState(true)
 
+  // Auto-hide guidance banner 4 seconds after first interaction
+  useEffect(() => {
+    if (hasInteracted && isPlaced) {
+      const timer = setTimeout(() => {
+        setShowBanner(false)
+      }, 4000)
+      return () => clearTimeout(timer)
+    }
+  }, [hasInteracted, isPlaced])
+
   return (
     <div className="ar-overlay-root">
       {/* Guidance Banner */}
@@ -37,11 +53,18 @@ export const ARControlOverlay = ({
         <div className="ar-guidance-banner">
           <div className="ar-guidance-content">
             <span className="ar-guidance-icon">{isPlaced ? '✨' : '📍'}</span>
-            <span className="ar-guidance-text">
-              {isPlaced
-                ? 'Drag to move • Pinch to scale • Twist to rotate'
-                : 'Tap floor to place Pikachu!'}
-            </span>
+            <div style={{ display: 'flex', flexDirection: 'column' }}>
+              <span className="ar-guidance-text">
+                {isPlaced
+                  ? 'Drag to move • Pinch to scale • Twist to rotate'
+                  : 'Move phone to find floor → Tap to place Pikachu!'}
+              </span>
+              <span style={{ fontSize: '10px', color: 'rgba(255, 255, 255, 0.65)' }}>
+                {isWebXR
+                  ? '🥽 WebXR Immersive Surface Tracking'
+                  : '📷 Camera AR (Floor Surface Anchored)'}
+              </span>
+            </div>
           </div>
           <button
             type="button"

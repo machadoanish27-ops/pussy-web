@@ -1,5 +1,5 @@
 import * as THREE from 'three'
-import type { PetState } from '../../types'
+import type { PetState, HitLocation, IdlePoseType } from '../../types'
 
 export interface RigBones {
   head: THREE.Object3D | null
@@ -19,15 +19,17 @@ export interface RigBones {
  * ProceduralAnimator
  *
  * Implements high-fidelity living procedural animations on Pikachu's
- * 49-bone skeleton and root transform.
+ * 49-bone skeleton, facial meshes, and root transform.
  *
  * Covers:
- * - Living idle breathing, ear twitches, tail wags, head sways
- * - P0 Hit -> Fall -> Lie -> Stand -> Recover
- * - Voice repeating head nods & volume pulse
- * - Eating & drinking bowl-reaching bobs
- * - Happy petting hops & ear perks
- * - Soccer jump header strike
+ * - Living autonomous idle behavior: breathing, ear twitches, tail wags
+ * - Multiple autonomous idle poses (Tilt Left/Right, Curious Lean, Weight Shift, Sleepy Slump, Happy Bounce)
+ * - Look-at camera & room awareness (smooth gaze yaw)
+ * - Location-aware cartoon hit reactions (Head, Left/Right Cheek, Eyes, Body, Ear, Tail)
+ * - Repeated-hit combo escalation & dazed recovery
+ * - Procedural facial animation: blinking, happy squinting, speech sync, eating/drinking
+ * - Procedural cartoon cheek swelling on cheek impacts
+ * - P0 Hit -> Fall -> Lie (2.5s) -> Stand -> Recover
  */
 export class ProceduralAnimator {
   private bones: RigBones = {
@@ -50,9 +52,12 @@ export class ProceduralAnimator {
   // Facial meshes and cached resting vertices
   private eyeMesh: THREE.SkinnedMesh | null = null
   private mouthMesh: THREE.SkinnedMesh | null = null
+  private cheekMesh: THREE.SkinnedMesh | null = null
   private initialEyeY: Float32Array | null = null
   private initialMouthY: Float32Array | null = null
   private initialMouthZ: Float32Array | null = null
+  private initialCheekX: Float32Array | null = null
+  private initialCheekZ: Float32Array | null = null
 
   // Natural living timers
   private earTwitchTimer = 0
@@ -66,6 +71,29 @@ export class ProceduralAnimator {
 
   // Natural mouth opening
   private mouthOpenProgress = 0
+
+  // Autonomous Idle Pose Variations
+  private idlePose: IdlePoseType = 'STAND'
+  private idlePoseTimer = 0
+  private idlePoseInterval = 8.0
+
+  // Look-at awareness (gaze yaw)
+  private lookAroundTimer = 0
+  private lookAroundInterval = 6.5
+  private targetLookYaw = 0
+  private currentLookYaw = 0
+
+  // Idle Vocalization Timer
+  private idleVocalTimer = 0
+  private idleVocalInterval = 40.0
+
+  // Location-Specific Hit & Damage Reaction State
+  private activeHitLocation: HitLocation | null = null
+  private hitRecoilTimer = 0
+  private hitComboScale = 1.0
+  private leftCheekSwelling = 0
+  private rightCheekSwelling = 0
+  private dazedTimer = 0
 
   // Local procedural offsets (normalized around (0, 0, 0) and unit scale (1, 1, 1))
   private currentPos = new THREE.Vector3(0, 0, 0)
@@ -106,7 +134,7 @@ export class ProceduralAnimator {
       rLeg: findBone('RLeg_014'),
     }
 
-    // Bind facial meshes (Object_9 = Eyes, Object_8 = Mouth)
+    // Bind facial meshes (Object_9 = Eyes, Object_8 = Mouth, Object_7 = Cheeks)
     scene.traverse((node) => {
       const mesh = node as THREE.SkinnedMesh
       if (mesh.isMesh) {
@@ -126,9 +154,75 @@ export class ProceduralAnimator {
             this.initialMouthY[i] = pos.getY(i)
             this.initialMouthZ[i] = pos.getZ(i)
           }
+        } else if (mesh.name === 'Object_7') {
+          this.cheekMesh = mesh
+          const pos = mesh.geometry.attributes.position
+          this.initialCheekX = new Float32Array(pos.count)
+          this.initialCheekZ = new Float32Array(pos.count)
+          for (let i = 0; i < pos.count; i++) {
+            this.initialCheekX[i] = pos.getX(i)
+            this.initialCheekZ[i] = pos.getZ(i)
+          }
         }
       }
     })
+  }
+
+  /**
+   * Triggers a location-specific cartoon hit reaction with combo scaling
+   */
+  public triggerLocationHit(location: HitLocation, comboCount: number = 1): void {
+    this.activeHitLocation = location
+    this.hitRecoilTimer = 0.42
+    this.hitComboScale = 1.0 + Math.min(comboCount * 0.25, 0.8)
+
+    if (location === 'LEFT_CHEEK') {
+      this.leftCheekSwelling = 1.0
+    } else if (location === 'RIGHT_CHEEK') {
+      this.rightCheekSwelling = 1.0
+    } else if (location === 'HEAD' || location === 'EYES') {
+      this.dazedTimer = 2.4
+    }
+  }
+
+  /**
+   * Periodic check for autonomous idle vocalization after prolonged inactivity
+   */
+  public checkIdleVocalization(
+    delta: number,
+    isEngaged: boolean,
+    onTriggerVocal: () => void
+  ): void {
+    if (isEngaged) {
+      this.idleVocalTimer = 0
+      return
+    }
+
+    this.idleVocalTimer += delta
+    if (this.idleVocalTimer >= this.idleVocalInterval) {
+      this.idleVocalTimer = 0
+      this.idleVocalInterval = 35.0 + Math.random() * 45.0 // 35s to 80s
+      onTriggerVocal()
+    }
+  }
+
+  public getActiveHitLocation(): HitLocation | null {
+    return this.activeHitLocation
+  }
+
+  public getIdlePose(): IdlePoseType {
+    return this.idlePose
+  }
+
+  public isDazed(): boolean {
+    return this.dazedTimer > 0
+  }
+
+  public clearDamageEffects(): void {
+    this.leftCheekSwelling = 0
+    this.rightCheekSwelling = 0
+    this.dazedTimer = 0
+    this.activeHitLocation = null
   }
 
   public update(
@@ -148,17 +242,94 @@ export class ProceduralAnimator {
       this.earTwitchActive -= delta
     }
 
-    // 2. Compute Root Transform targets by PetState (local offsets relative to parent)
+    // 2. Autonomous Idle Pose & Look-At Awareness update
+    if (state === 'IDLE') {
+      this.idlePoseTimer += delta
+      if (this.idlePoseTimer >= this.idlePoseInterval) {
+        this.idlePoseTimer = 0
+        this.idlePoseInterval = 6.5 + Math.random() * 5.5
+        const poses: IdlePoseType[] = [
+          'STAND',
+          'HEAD_TILT_LEFT',
+          'HEAD_TILT_RIGHT',
+          'LEAN_FORWARD',
+          'WEIGHT_SHIFT',
+          'SLEEPY_SLUMP',
+          'HAPPY_BOUNCE',
+        ]
+        this.idlePose = poses[Math.floor(Math.random() * poses.length)]
+      }
+
+      this.lookAroundTimer += delta
+      if (this.lookAroundTimer >= this.lookAroundInterval) {
+        this.lookAroundTimer = 0
+        this.lookAroundInterval = 5.0 + Math.random() * 4.5
+        const targets = [-0.3, 0.3, 0, 0] // 50% chance center, 25% left, 25% right
+        this.targetLookYaw = targets[Math.floor(Math.random() * targets.length)]
+      }
+    } else {
+      this.idlePose = 'STAND'
+      this.targetLookYaw = 0
+    }
+
+    // Smooth look-at yaw interpolation
+    this.currentLookYaw = THREE.MathUtils.lerp(
+      this.currentLookYaw,
+      this.targetLookYaw,
+      1 - Math.exp(-4 * delta)
+    )
+
+    // Decay active hit recoil timer
+    if (this.hitRecoilTimer > 0) {
+      this.hitRecoilTimer -= delta
+    }
+
+    // 3. Compute Root Transform targets by PetState (local offsets relative to parent)
     switch (state) {
       case 'IDLE': {
         const breath = Math.sin(time * 2.8) * 0.015
-        this.targetPos.set(0, breath, 0)
-        this.targetRot.set(0, Math.sin(time * 0.8) * 0.06, 0)
-        this.targetScale.set(
-          1 + breath * 0.01,
-          1 - breath * 0.01,
-          1 + breath * 0.01
-        )
+        let posePosX = 0
+        let posePosY = breath
+        let posePosZ = 0
+        let poseRotX = 0
+        const poseRotY = Math.sin(time * 0.8) * 0.05
+        let poseRotZ = 0
+        let poseScaleY = 1 - breath * 0.01
+
+        switch (this.idlePose) {
+          case 'HEAD_TILT_LEFT':
+            poseRotZ = -0.06
+            posePosX = -0.015
+            break
+          case 'HEAD_TILT_RIGHT':
+            poseRotZ = 0.06
+            posePosX = 0.015
+            break
+          case 'LEAN_FORWARD':
+            poseRotX = 0.08
+            posePosZ = 0.04
+            break
+          case 'WEIGHT_SHIFT':
+            poseRotZ = Math.sin(time * 1.5) * 0.04
+            posePosX = Math.sin(time * 1.5) * 0.02
+            break
+          case 'SLEEPY_SLUMP':
+            posePosY = breath - 0.04
+            poseRotX = 0.06
+            break
+          case 'HAPPY_BOUNCE': {
+            const bounce = Math.abs(Math.sin(time * 6)) * 0.03
+            posePosY = breath + bounce
+            poseScaleY = 1 + bounce * 0.5
+            break
+          }
+          default:
+            break
+        }
+
+        this.targetPos.set(posePosX, posePosY, posePosZ)
+        this.targetRot.set(poseRotX, poseRotY, poseRotZ)
+        this.targetScale.set(1 + breath * 0.01, poseScaleY, 1 + breath * 0.01)
         break
       }
 
@@ -181,10 +352,46 @@ export class ProceduralAnimator {
       }
 
       case 'HIT': {
-        // Instant recoil backwards and slight squash
-        this.targetPos.set(0, 0.04, -0.16)
-        this.targetRot.set(-0.35, 0, 0.12)
-        this.targetScale.set(1.08, 0.88, 1.08)
+        // Location-specific cartoon recoil vector scaled by combo
+        const scale = this.hitComboScale
+        switch (this.activeHitLocation) {
+          case 'LEFT_CHEEK':
+            this.targetPos.set(0.06 * scale, 0.02, -0.1 * scale)
+            this.targetRot.set(-0.15, 0.22 * scale, -0.28 * scale)
+            this.targetScale.set(1.06, 0.92, 1.06)
+            break
+          case 'RIGHT_CHEEK':
+            this.targetPos.set(-0.06 * scale, 0.02, -0.1 * scale)
+            this.targetRot.set(-0.15, -0.22 * scale, 0.28 * scale)
+            this.targetScale.set(1.06, 0.92, 1.06)
+            break
+          case 'HEAD':
+            this.targetPos.set(0, 0.06 * scale, -0.2 * scale)
+            this.targetRot.set(-0.45 * scale, 0, 0.12)
+            this.targetScale.set(1.1, 0.85, 1.1)
+            break
+          case 'EYES':
+            this.targetPos.set(0, 0.02, -0.14 * scale)
+            this.targetRot.set(-0.25, Math.sin(time * 30) * 0.12, 0)
+            this.targetScale.set(1.05, 0.9, 1.05)
+            break
+          case 'EAR':
+            this.targetPos.set(0.04, 0.03, -0.08)
+            this.targetRot.set(-0.1, 0.15, 0.25)
+            this.targetScale.set(1.04, 0.94, 1.04)
+            break
+          case 'TAIL':
+            this.targetPos.set(0, 0.05, 0.12)
+            this.targetRot.set(0.2, 0, 0)
+            this.targetScale.set(1.05, 0.95, 1.05)
+            break
+          default:
+            // Standard body hit
+            this.targetPos.set(0, 0.04 * scale, -0.18 * scale)
+            this.targetRot.set(-0.35 * scale, 0, 0.12)
+            this.targetScale.set(1.08, 0.88, 1.08)
+            break
+        }
         break
       }
 
@@ -254,8 +461,8 @@ export class ProceduralAnimator {
       }
     }
 
-    // 3. Smooth Lerp on Root Group Transforms
-    const lerpRate = state === 'HIT' ? 24 : 10
+    // 4. Smooth Lerp on Root Group Transforms
+    const lerpRate = state === 'HIT' ? 26 : 10
     const alpha = 1 - Math.exp(-lerpRate * delta)
 
     this.currentPos.lerp(this.targetPos, alpha)
@@ -268,10 +475,10 @@ export class ProceduralAnimator {
     rootGroup.rotation.y = THREE.MathUtils.lerp(rootGroup.rotation.y, this.targetRot.y, alpha)
     rootGroup.rotation.z = THREE.MathUtils.lerp(rootGroup.rotation.z, this.targetRot.z, alpha)
 
-    // 4. Update Rigged Skeleton Bones
+    // 5. Update Rigged Skeleton Bones
     this.updateBones(state, time, delta, voiceVolume)
 
-    // 5. Update Facial Procedural Animation (Eyes Blinking & Mouth Open/Sync)
+    // 6. Update Facial Procedural Animation (Eyes Blinking, Cheek Swelling, Mouth Sync)
     this.updateFacialAnimation(state, time, delta, voiceVolume)
   }
 
@@ -301,8 +508,12 @@ export class ProceduralAnimator {
     let blinkFactor = this.isBlinking ? Math.sin(this.blinkProgress * Math.PI) : 0
 
     // Specific state overrides for eyes
-    if (state === 'PETTING' || state === 'HAPPY') {
-      blinkFactor = Math.max(blinkFactor, 0.7) // Happy squint
+    if (this.dazedTimer > 0) {
+      this.dazedTimer -= delta
+      // Alternating dazed comic eye wobble
+      blinkFactor = Math.max(blinkFactor, 0.45 + Math.sin(time * 16) * 0.4)
+    } else if (state === 'PETTING' || state === 'HAPPY') {
+      blinkFactor = Math.max(blinkFactor, 0.72) // Blissful happy squint
     } else if (state === 'LYING' || state === 'SLEEPING') {
       blinkFactor = 1.0 // Fully closed asleep
     } else if (state === 'FALLING') {
@@ -322,6 +533,39 @@ export class ProceduralAnimator {
         pos.setY(i, origY + (centerY - origY) * blinkFactor * 0.92)
       }
       pos.needsUpdate = true
+    }
+
+    // --- CHEEK SWELLING ANIMATION (Object_7) ---
+    if (this.cheekMesh && this.initialCheekX && this.initialCheekZ) {
+      const pos = this.cheekMesh.geometry.attributes.position
+
+      // Decay swelling
+      if (this.leftCheekSwelling > 0) {
+        this.leftCheekSwelling = Math.max(0, this.leftCheekSwelling - delta * 0.35)
+      }
+      if (this.rightCheekSwelling > 0) {
+        this.rightCheekSwelling = Math.max(0, this.rightCheekSwelling - delta * 0.35)
+      }
+
+      if (this.leftCheekSwelling > 0 || this.rightCheekSwelling > 0) {
+        for (let i = 0; i < pos.count; i++) {
+          const origX = this.initialCheekX[i]
+          const origZ = this.initialCheekZ[i]
+          if (origX < 0 && this.leftCheekSwelling > 0) {
+            // Left cheek puffed out
+            pos.setX(i, origX - this.leftCheekSwelling * 0.85)
+            pos.setZ(i, origZ + this.leftCheekSwelling * 0.65)
+          } else if (origX > 0 && this.rightCheekSwelling > 0) {
+            // Right cheek puffed out
+            pos.setX(i, origX + this.rightCheekSwelling * 0.85)
+            pos.setZ(i, origZ + this.rightCheekSwelling * 0.65)
+          } else {
+            pos.setX(i, origX)
+            pos.setZ(i, origZ)
+          }
+        }
+        pos.needsUpdate = true
+      }
     }
 
     // --- MOUTH LOGIC (Object_8) ---
@@ -432,16 +676,29 @@ export class ProceduralAnimator {
     let headZ = 0
 
     if (state === 'IDLE') {
-      headY = Math.sin(time * 1.2) * 0.08
+      headY = Math.sin(time * 1.2) * 0.08 + this.currentLookYaw
       headX = Math.cos(time * 0.9) * 0.04
+      if (this.idlePose === 'HEAD_TILT_LEFT') headZ = -0.14
+      if (this.idlePose === 'HEAD_TILT_RIGHT') headZ = 0.14
+      if (this.idlePose === 'LEAN_FORWARD') headX = 0.12
     } else if (state === 'TALKING') {
       headX = Math.sin(time * 14) * 0.16 * (0.5 + voiceVolume)
       headY = Math.cos(time * 5) * 0.06
     } else if (state === 'PETTING' || state === 'HAPPY') {
-      headX = -0.25 // tilted up with pleasure
+      headX = -0.22 // tilted up with pleasure
       headZ = Math.sin(time * 6) * 0.08
     } else if (state === 'HIT') {
-      headX = -0.45 // snapped back
+      if (this.activeHitLocation === 'HEAD') {
+        headX = -0.55 * this.hitComboScale
+      } else if (this.activeHitLocation === 'LEFT_CHEEK') {
+        headY = 0.25 * this.hitComboScale
+        headZ = -0.2
+      } else if (this.activeHitLocation === 'RIGHT_CHEEK') {
+        headY = -0.25 * this.hitComboScale
+        headZ = 0.2
+      } else {
+        headX = -0.45 * this.hitComboScale
+      }
     } else if (state === 'LYING') {
       headY = Math.sin(time * 4) * 0.06 // faint dizzy wobble
     } else if (state === 'RECOVERING') {
@@ -471,11 +728,11 @@ export class ProceduralAnimator {
       lEarZ = Math.sin(time * 12) * 0.12
       rEarZ = -Math.sin(time * 12) * 0.12
     } else if (state === 'PETTING' || state === 'HAPPY') {
-      lEarZ = 0.25 + Math.sin(time * 8) * 0.1
-      rEarZ = -0.25 - Math.sin(time * 8) * 0.1
+      lEarZ = 0.28 + Math.sin(time * 8) * 0.12
+      rEarZ = -0.28 - Math.sin(time * 8) * 0.12
     } else if (state === 'HIT' || state === 'FALLING') {
-      lEarX = -0.3
-      rEarX = -0.3
+      lEarX = -0.35
+      rEarX = -0.35
     } else if (state === 'LYING') {
       lEarX = -0.15 + Math.sin(time * 3) * 0.05
       rEarX = -0.15 + Math.cos(time * 3) * 0.05
@@ -495,7 +752,7 @@ export class ProceduralAnimator {
       tailY = Math.sin(time * 3.8) * 0.22
       tailX = Math.cos(time * 1.9) * 0.05
     } else if (state === 'PETTING' || state === 'HAPPY') {
-      tailY = Math.sin(time * 10) * 0.45 // happy rapid wag!
+      tailY = Math.sin(time * 11) * 0.5 // ecstatic rapid wag!
     } else if (state === 'TALKING') {
       tailY = Math.sin(time * 5) * 0.2
     } else if (state === 'HIT' || state === 'FALLING' || state === 'LYING') {
@@ -511,7 +768,7 @@ export class ProceduralAnimator {
     if (state === 'SOCCER') {
       armX = -0.35 // arms back during header jump
     } else if (state === 'PETTING' || state === 'HAPPY') {
-      armX = 0.2 // little arms raised with joy
+      armX = 0.22 // little arms raised with joy
     } else if (state === 'ANGRY') {
       armX = 0.35
     }

@@ -51,3 +51,29 @@ export type InteractionType =
   | 'feed_fish'
   | 'voice'
   | 'soccer'
+
+export type HitLocation =
+  | 'HEAD'
+  | 'LEFT_CHEEK'
+  | 'RIGHT_CHEEK'
+  | 'EYES'
+  | 'BODY'
+  | 'EAR'
+  | 'TAIL'
+
+export type CartoonEffectType =
+  | 'BANDAGE_HEAD'
+  | 'BANDAGE_LEFT'
+  | 'BANDAGE_RIGHT'
+  | 'DIZZY_STARS'
+  | 'SPARK_BURST'
+  | 'HEART_FLOAT'
+
+export type IdlePoseType =
+  | 'STAND'
+  | 'HEAD_TILT_LEFT'
+  | 'HEAD_TILT_RIGHT'
+  | 'LEAN_FORWARD'
+  | 'WEIGHT_SHIFT'
+  | 'SLEEPY_SLUMP'
+  | 'HAPPY_BOUNCE'
