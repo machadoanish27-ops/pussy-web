@@ -45,15 +45,20 @@ export function App() {
 
   // Interaction & Combo Tracking Refs
   const hitComboRef = useRef(0)
+  const consecutiveHitCountRef = useRef(0)
   const lastHitTimeRef = useRef(0)
   const lastPetTimeRef = useRef(0)
+  const lastPetVocalTimeRef = useRef(0)
+  const petVocalCooldownRef = useRef(3000)
   const lastInteractionTimeRef = useRef(0)
   const hitCountsByLocationRef = useRef<Record<HitLocation, number>>({
     HEAD: 0,
+    FOREHEAD: 0,
     LEFT_CHEEK: 0,
     RIGHT_CHEEK: 0,
     EYES: 0,
     BODY: 0,
+    SIDES: 0,
     EAR: 0,
     TAIL: 0,
   })
@@ -109,10 +114,13 @@ export function App() {
       onStatusChange: (status, message) => {
         setVoiceStatus(status)
         setVoiceMessage(message || '')
-        if (status === 'speaking') {
+        if (status === 'recording') {
+          stateMachine.setState('LISTENING', true)
+        } else if (status === 'speaking') {
           stateMachine.setState('TALKING', true)
         } else if (status === 'idle') {
-          if (stateMachine.getState() === 'TALKING') {
+          const current = stateMachine.getState()
+          if (current === 'TALKING' || current === 'LISTENING') {
             stateMachine.setState('IDLE', true)
           }
         }
@@ -156,69 +164,90 @@ export function App() {
 
   // --- INTERACTION HANDLERS ---
 
-  /** Location-Aware Hit Detection & Combo Escalation */
+  /** Location-Aware Hit Detection & 10-Hit Escalation */
   const handleHitLocation = useCallback(
     (location: HitLocation) => {
       if (stateMachine.isLocked()) return
 
       const now = Date.now()
+      // Hit debounce threshold (260ms) to ensure exactly one hit per deliberate gesture
+      if (now - lastHitTimeRef.current < 260) return
+      lastHitTimeRef.current = now
       lastInteractionTimeRef.current = now
 
-      // 1. Combo window check (within 2.2s)
-      const isCombo = now - lastHitTimeRef.current < 2200
-      const nextCombo = isCombo ? hitComboRef.current + 1 : 1
-      hitComboRef.current = nextCombo
-      lastHitTimeRef.current = now
+      // 1. Advance consecutive hit counter (progresses 1 to 10)
+      const hitIndex = Math.min(10, consecutiveHitCountRef.current + 1)
+      consecutiveHitCountRef.current = hitIndex
+      hitComboRef.current = hitIndex
 
       // 2. Increment location strike counts
       hitCountsByLocationRef.current[location] =
         (hitCountsByLocationRef.current[location] || 0) + 1
 
       // 3. Trigger procedural recoil on animator
-      proceduralAnimator.triggerLocationHit(location, nextCombo)
+      proceduralAnimator.triggerLocationHit(location, hitIndex)
 
-      // 4. Synthesized Cartoon Audio
-      if (nextCombo === 1) {
-        SoundEffects.playSlap()
-      } else {
-        SoundEffects.playCombo()
-      }
-      if (location === 'HEAD' || location === 'EYES') {
-        SoundEffects.playDizzy()
-      }
-
-      // 5. Spawn Cartoon Bandages & Visual Effects on repeated regional hits
-      if (location === 'HEAD' && hitCountsByLocationRef.current.HEAD >= 2) {
-        spawnDamageEffect('BANDAGE_HEAD', 5000)
-      } else if (
-        location === 'LEFT_CHEEK' &&
-        hitCountsByLocationRef.current.LEFT_CHEEK >= 2
-      ) {
-        spawnDamageEffect('BANDAGE_LEFT', 5000)
-      } else if (
-        location === 'RIGHT_CHEEK' &&
-        hitCountsByLocationRef.current.RIGHT_CHEEK >= 2
-      ) {
-        spawnDamageEffect('BANDAGE_RIGHT', 5000)
-      }
-
-      // Combo dizzy stars
-      if (nextCombo >= 2) {
-        spawnDamageEffect('DIZZY_STARS', 3500)
-      }
-
-      // 6. Deduct stats
+      // 4. Deduct stats
       statsManager.hit((updated) => setStats(updated))
 
-      // 7. Threshold check: Combo >= 3 triggers full Fall -> Lie (2.5s) -> Stand -> Recover
-      if (nextCombo >= 3) {
+      // 5. Progressive cartoon reactions & audio based on hit count
+      if (hitIndex === 1) {
+        SoundEffects.playSlap()
+        stateMachine.triggerTemporaryState('HIT', 380)
+      } else if (hitIndex === 2) {
+        SoundEffects.playSlap()
+        stateMachine.triggerTemporaryState('HIT', 420)
+      } else if (hitIndex === 3) {
+        SoundEffects.playCombo()
+        spawnDamageEffect('SPARK_BURST', 2000)
+        stateMachine.triggerTemporaryState('HIT', 460)
+      } else if (hitIndex === 4) {
+        SoundEffects.playDizzy()
+        stateMachine.triggerTemporaryState('HIT', 480)
+      } else if (hitIndex === 5) {
+        SoundEffects.playCombo()
+        spawnDamageEffect('DIZZY_STARS', 5000)
+        stateMachine.triggerTemporaryState('HIT', 520)
+      } else if (hitIndex === 6) {
+        SoundEffects.playDizzy()
+        // Bandage appears based on regional impacts
+        if (location === 'LEFT_CHEEK') {
+          spawnDamageEffect('BANDAGE_LEFT', 6000)
+        } else if (location === 'RIGHT_CHEEK') {
+          spawnDamageEffect('BANDAGE_RIGHT', 6000)
+        } else {
+          spawnDamageEffect('BANDAGE_HEAD', 6000)
+        }
+        stateMachine.triggerTemporaryState('HIT', 540)
+      } else if (hitIndex === 7) {
+        SoundEffects.playDizzy()
+        stateMachine.triggerTemporaryState('HIT', 560)
+      } else if (hitIndex === 8) {
+        SoundEffects.playCombo()
+        // Secondary bandage if cheek or head also hit
+        if (location === 'LEFT_CHEEK' && hitCountsByLocationRef.current.RIGHT_CHEEK >= 1) {
+          spawnDamageEffect('BANDAGE_RIGHT', 6000)
+        } else if (location === 'RIGHT_CHEEK' && hitCountsByLocationRef.current.LEFT_CHEEK >= 1) {
+          spawnDamageEffect('BANDAGE_LEFT', 6000)
+        } else if (location !== 'HEAD') {
+          spawnDamageEffect('BANDAGE_HEAD', 6000)
+        }
+        stateMachine.triggerTemporaryState('HIT', 580)
+      } else if (hitIndex === 9) {
+        SoundEffects.playDizzy()
+        stateMachine.triggerTemporaryState('HIT', 600)
+      } else if (hitIndex >= 10) {
+        // FULL FALL at 10th valid hit: Fall -> Lie (2.5s) -> Stand -> Recover
+        consecutiveHitCountRef.current = 0
         hitComboRef.current = 0
         hitCountsByLocationRef.current = {
           HEAD: 0,
+          FOREHEAD: 0,
           LEFT_CHEEK: 0,
           RIGHT_CHEEK: 0,
           EYES: 0,
           BODY: 0,
+          SIDES: 0,
           EAR: 0,
           TAIL: 0,
         }
@@ -231,20 +260,17 @@ export function App() {
             SoundEffects.playRecover()
           },
           () => {
-            // Recovery complete: clean up damage effects
+            // Recovery complete: completely clean up all temporary damage effects!
             setDamageEffects([])
             proceduralAnimator.clearDamageEffects()
           }
         )
-      } else {
-        // Single or light hit: short cartoon recoil
-        stateMachine.triggerTemporaryState('HIT', 450)
       }
     },
     [stateMachine, statsManager, proceduralAnimator, spawnDamageEffect]
   )
 
-  /** Continuous Vertical Petting Gesture */
+  /** Continuous Vertical Petting Gesture & Pika Pika Vocalization */
   const handlePetSwipe = useCallback(() => {
     if (stateMachine.isLocked()) return
 
@@ -252,7 +278,7 @@ export function App() {
     lastInteractionTimeRef.current = now
 
     // Throttle during continuous swiping
-    if (now - lastPetTimeRef.current < 450) return
+    if (now - lastPetTimeRef.current < 400) return
     lastPetTimeRef.current = now
 
     SoundEffects.playPurr()
@@ -261,7 +287,19 @@ export function App() {
 
     // Spawn floating heart particle
     spawnDamageEffect('HEART_FLOAT', 1500)
-  }, [stateMachine, statsManager, spawnDamageEffect])
+
+    // Occasional synthesized "pika pika" vocal reaction on 2.6s - 4.4s cooldown
+    const isVoiceActive = voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
+    if (!isVoiceActive && (now - lastPetVocalTimeRef.current >= petVocalCooldownRef.current)) {
+      lastPetVocalTimeRef.current = now
+      petVocalCooldownRef.current = 2600 + Math.random() * 1600 // 2.6s to 4.2s natural cooldown
+      setTimeout(() => {
+        if (voiceStatus === 'idle') {
+          SoundEffects.playPettingPika()
+        }
+      }, 160)
+    }
+  }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus])
 
   /** Fallback Pet Tap */
   const handlePetTap = useCallback(() => {

@@ -143,7 +143,11 @@ export class VoiceRepeater {
       const ctx = this.getAudioContext()
 
       const audioBuffer = await ctx.decodeAudioData(arrayBuffer)
-      this.playPitchShifted(audioBuffer)
+      // Attentive pause (280ms) keeping the listening/curious posture before starting speech
+      await new Promise((resolve) => setTimeout(resolve, 280))
+      if (this.status === 'processing') {
+        this.playPitchShifted(audioBuffer)
+      }
     } catch {
       this.setStatus('idle', 'Could not process audio')
     }

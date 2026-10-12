@@ -97,8 +97,10 @@ export const PikachuModel = ({
       return relX < 0 ? 'LEFT_CHEEK' : 'RIGHT_CHEEK'
     }
 
-    if (relY > 1.2) return 'EAR'
-    if (relY > 0.8) return 'HEAD'
+    if (relY > 1.15) return 'EAR'
+    if (relY > 0.88) return 'HEAD'
+    if (relY > 0.72 && relZ > 0.12) return 'FOREHEAD'
+    if (Math.abs(relX) > 0.38) return 'SIDES'
     if (relZ < -0.15 && relY < 0.7) return 'TAIL'
 
     return 'BODY'
@@ -131,10 +133,19 @@ export const PikachuModel = ({
           e.stopPropagation()
 
           const tracker = pointerStartRef.current
+          const totalDy = e.clientY - tracker.y
           const dy = e.clientY - tracker.lastY
 
-          // Detect vertical swipe reversals for petting gesture
-          if (Math.abs(dy) > 12) {
+          // 1. Natural top-to-bottom sliding stroke (> 22px downward)
+          if (totalDy > 22 && !tracker.isPetting) {
+            tracker.isPetting = true
+            onPetSwipe?.()
+            const yFactor = THREE.MathUtils.clamp(totalDy / 80, -1, 1)
+            animator.setPettingFollow(yFactor, true)
+          }
+
+          // 2. Continuous stroke & reversal detection (rubbing up/down)
+          if (Math.abs(dy) > 10) {
             const currentDir = dy > 0 ? 1 : -1
             if (tracker.lastDir !== 0 && tracker.lastDir !== currentDir) {
               tracker.reversals++
@@ -142,10 +153,13 @@ export const PikachuModel = ({
             tracker.lastDir = currentDir
             tracker.lastY = e.clientY
 
-            // 2 reversals (up -> down -> up) triggers continuous petting!
             if (tracker.reversals >= 2) {
-              tracker.isPetting = true
+              if (!tracker.isPetting) {
+                tracker.isPetting = true
+              }
               onPetSwipe?.()
+              const yFactor = THREE.MathUtils.clamp(dy / 40, -1, 1)
+              animator.setPettingFollow(yFactor, true)
             }
           }
         }}
@@ -160,9 +174,10 @@ export const PikachuModel = ({
           )
           const duration = Date.now() - tracker.time
           pointerStartRef.current = null
+          animator.setPettingFollow(0, false)
 
-          // If not a petting swipe and tap was quick, trigger deliberate location hit!
-          if (!tracker.isPetting && dist < 16 && duration < 400) {
+          // If not a petting swipe and tap was crisp, trigger deliberate location hit!
+          if (!tracker.isPetting && dist < 18 && duration < 380) {
             if (onHitLocation) {
               onHitLocation(tracker.location)
             } else {
@@ -170,7 +185,16 @@ export const PikachuModel = ({
             }
           }
         }}
+        onPointerCancel={() => {
+          pointerStartRef.current = null
+          animator.setPettingFollow(0, false)
+        }}
       >
+        {/* Generous touch proxy mesh enclosing Pikachu's head and body */}
+        <mesh visible={false} position={[0, 0.65, 0]}>
+          <cylinderGeometry args={[0.52, 0.46, 1.35, 16]} />
+          <meshBasicMaterial transparent opacity={0} />
+        </mesh>
         <primitive object={scene} />
       </group>
     </group>

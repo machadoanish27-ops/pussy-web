@@ -18,6 +18,7 @@ export type ARModeState =
  */
 export type PetState =
   | 'IDLE'
+  | 'LISTENING'
   | 'TALKING'
   | 'PETTING'
   | 'HAPPY'
@@ -30,6 +31,12 @@ export type PetState =
   | 'DRINKING'
   | 'SOCCER'
   | 'SLEEPING'
+
+export type MouthState =
+  | 'MOUTH_CLOSED'
+  | 'MOUTH_SMALL'
+  | 'MOUTH_OPEN'
+  | 'MOUTH_WIDE'
 
 export interface PetStats {
   hunger: number
@@ -54,10 +61,12 @@ export type InteractionType =
 
 export type HitLocation =
   | 'HEAD'
+  | 'FOREHEAD'
   | 'LEFT_CHEEK'
   | 'RIGHT_CHEEK'
   | 'EYES'
   | 'BODY'
+  | 'SIDES'
   | 'EAR'
   | 'TAIL'
 

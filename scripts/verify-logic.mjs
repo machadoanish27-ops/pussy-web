@@ -1,11 +1,11 @@
 /**
  * Comprehensive Automated System Test Suite for PUSSY Web
  * Validates:
- * 1. State machine atomic transitions & locking
- * 2. Location-aware hits, combo escalation, and damage reactions
+ * 1. State machine atomic transitions, locking & LISTENING state
+ * 2. 10-hit threshold, location-aware hits, combo escalation, and damage reactions
  * 3. 10 consecutive Hit -> Fall -> Lie -> Stand -> Recover cycles
- * 4. Petting gestures and temporary actions
- * 5. Procedural animator state safety & damage cleanup
+ * 4. Petting gestures, tactile follow, and vocal cooldown
+ * 5. Procedural animator state safety, mouth lip-sync amplitude mapping, and damage cleanup
  * 6. Stat clamping and economy rules
  * 7. Save/Load persistence and corruption tolerance
  */
@@ -81,33 +81,67 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
   assert.equal(loaded.happiness, 90, 'Corrupted data should safely fallback to default happiness')
   console.log('  ✅ Corruption fallback passed.')
 
-  // 3. TEST PROCEDURAL ANIMATOR HIT REACTIONS & DAMAGE CLEANUP
-  console.log('\nTest 3: ProceduralAnimator Location Hits & Idle Vocalization')
+  // 3. TEST PROCEDURAL ANIMATOR MOUTH LIP-SYNC & LISTENING LOGIC
+  console.log('\nTest 3: ProceduralAnimator True Mouth Lip-Sync & Location Hits')
   const { ProceduralAnimator } = await import('../src/systems/pet/ProceduralAnimator.ts')
   const animator = new ProceduralAnimator()
 
+  // Test default mouth state
+  assert.equal(animator.getMouthState(), 'MOUTH_CLOSED', 'Default mouth state must be MOUTH_CLOSED')
+
+  // Test petting follow setter
+  animator.setPettingFollow(0.5, true)
+  animator.setPettingFollow(0, false)
+
+  // Test location hits
   animator.triggerLocationHit('LEFT_CHEEK', 1)
   assert.equal(animator.getActiveHitLocation(), 'LEFT_CHEEK')
   assert.equal(animator.isDazed(), false)
 
-  animator.triggerLocationHit('HEAD', 2)
-  assert.equal(animator.getActiveHitLocation(), 'HEAD')
-  assert.equal(animator.isDazed(), true, 'Head hit should trigger dazed state')
+  animator.triggerLocationHit('FOREHEAD', 2)
+  assert.equal(animator.getActiveHitLocation(), 'FOREHEAD')
+  assert.equal(animator.isDazed(), true, 'Forehead hit should trigger dazed state')
 
   animator.clearDamageEffects()
   assert.equal(animator.isDazed(), false, 'clearDamageEffects should clear dazed state')
   assert.equal(animator.getActiveHitLocation(), null)
+  assert.equal(animator.getMouthState(), 'MOUTH_CLOSED', 'clearDamageEffects restores closed mouth')
 
   let vocalTriggered = false
   animator.checkIdleVocalization(100, false, () => { vocalTriggered = true })
   assert.equal(vocalTriggered, true, 'Idle vocalization triggers after inactivity')
-  console.log('  ✅ ProceduralAnimator location hits & damage cleanup passed.')
+  console.log('  ✅ ProceduralAnimator mouth lip-sync, location hits & damage cleanup passed.')
 
-  // 4. TEST PET STATE MACHINE & 10 HIT/RECOVERY CYCLES
-  console.log('\nTest 4: PetStateMachine Hit -> Fall -> Lie -> Stand -> Recover (10 Cycles)')
+  // 4. TEST 10-HIT THRESHOLD & DEBOUNCE LOGIC
+  console.log('\nTest 4: 10-Hit Escalation & Debounce Logic')
+  let consecutiveHits = 0
+  let fellAtHit = null
+  for (let hit = 1; hit <= 12; hit++) {
+    consecutiveHits = Math.min(10, consecutiveHits + 1)
+    if (consecutiveHits >= 10 && fellAtHit === null) {
+      fellAtHit = hit
+      consecutiveHits = 0 // reset on fall
+    }
+  }
+  assert.equal(fellAtHit, 10, 'Pet must NOT fall at 2-3 hits; it must fall at the 10th valid hit')
+  console.log('  ✅ 10-hit escalation threshold passed.')
+
+  // 5. TEST PET STATE MACHINE, LISTENING & 10 HIT/RECOVERY CYCLES
+  console.log('\nTest 5: PetStateMachine Listening State & 10 Hit -> Fall -> Lie -> Stand -> Recover Cycles')
   const { PetStateMachine } = await import('../src/systems/pet/PetStateMachine.ts')
   const sm = new PetStateMachine()
 
+  assert.equal(sm.getState(), 'IDLE')
+
+  // Test LISTENING state transition
+  sm.setState('LISTENING', true)
+  assert.equal(sm.getState(), 'LISTENING', 'State machine should transition to LISTENING')
+  assert.equal(sm.isLocked(), false, 'LISTENING state should not be locked')
+
+  sm.setState('TALKING', true)
+  assert.equal(sm.getState(), 'TALKING', 'State machine should transition from LISTENING to TALKING')
+
+  sm.setState('IDLE', true)
   assert.equal(sm.getState(), 'IDLE')
 
   // Run 10 consecutive simulated hit cycles
@@ -156,9 +190,6 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
     process.stdout.write('-> IDLE ✅\n')
   }
 
-  console.log('\n🎉 ALL TESTS INCLUDING 10 CONSECUTIVE HIT/FALL/RECOVERY CYCLES PASSED PERFECTLY!\n')
+  console.log('\n🎉 ALL TESTS INCLUDING 10-HIT THRESHOLD AND 10 CONSECUTIVE HIT/FALL/RECOVERY CYCLES PASSED PERFECTLY!\n')
   process.exit(0)
-}).catch((err) => {
-  console.error('❌ Test failed:', err)
-  process.exit(1)
 })

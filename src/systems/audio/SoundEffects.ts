@@ -331,6 +331,61 @@ class SoundEffectsEngine {
     }, 280)
   }
 
+  /**
+   * Synthesized sweet petting vocal reaction: "Pi-ka... pi-ka~"
+   * Specially calibrated with pitch and tempo variations for gentle tactile feedback.
+   */
+  public playPettingPika(): void {
+    const ctx = this.getContext()
+    if (!ctx) return
+    const now = ctx.currentTime
+
+    // Subtle pitch variation between strokes for living character feel
+    const pitchFactor = 0.95 + Math.random() * 0.16
+    const isTriple = Math.random() < 0.28 // 28% chance of sweet 3-chirp "pika-pika-pika"
+
+    const playChirp = (startTime: number, baseFreq: number, dropFreq: number, vol: number) => {
+      const osc1 = ctx.createOscillator()
+      const gain1 = ctx.createGain()
+      osc1.type = 'triangle'
+      osc1.frequency.setValueAtTime(baseFreq * pitchFactor, startTime)
+      osc1.frequency.exponentialRampToValueAtTime((baseFreq * 1.35) * pitchFactor, startTime + 0.07)
+
+      gain1.gain.setValueAtTime(vol, startTime)
+      gain1.gain.exponentialRampToValueAtTime(0.001, startTime + 0.07)
+
+      osc1.connect(gain1)
+      gain1.connect(ctx.destination)
+      osc1.start(startTime)
+      osc1.stop(startTime + 0.07)
+
+      const osc2 = ctx.createOscillator()
+      const gain2 = ctx.createGain()
+      osc2.type = 'sine'
+      osc2.frequency.setValueAtTime((dropFreq * 1.15) * pitchFactor, startTime + 0.075)
+      osc2.frequency.exponentialRampToValueAtTime(dropFreq * pitchFactor, startTime + 0.16)
+
+      gain2.gain.setValueAtTime(vol * 1.1, startTime + 0.075)
+      gain2.gain.exponentialRampToValueAtTime(0.001, startTime + 0.16)
+
+      osc2.connect(gain2)
+      gain2.connect(ctx.destination)
+      osc2.start(startTime + 0.075)
+      osc2.stop(startTime + 0.16)
+    }
+
+    // First cheerful "Pi-ka"
+    playChirp(now, 920, 560, 0.2)
+
+    // Second cheerful "pi-ka~"
+    playChirp(now + 0.22, 1020, 620, 0.24)
+
+    // Optional third mini chirp
+    if (isTriple) {
+      playChirp(now + 0.44, 1140, 700, 0.22)
+    }
+  }
+
   /** Curious high-pitched squeak / chirp */
   public playCurious(): void {
     const ctx = this.getContext()

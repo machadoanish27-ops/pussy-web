@@ -32,31 +32,37 @@ export const FoodProps = ({
   // Scale multiplier relative to default pet size
   const relativeScale = petScale / 0.034
 
-  // Float trajectory:
-  // Starts on floor (y = -0.68), rises toward mouth (y = -0.32) during eating, then is consumed
-  let currentY: number
-  let currentTilt: number
-  let scale: number
+  // Dynamic ground level and mouth level relative to Pikachu's placed 3D/AR position
+  const baseY = petPosition[1] + 0.01 * relativeScale
+  const mouthY = petPosition[1] + 0.38 * relativeScale
 
-  if (progress < 0.2) {
-    // Pop in on floor
-    const enter = progress / 0.2
-    scale = THREE.MathUtils.lerp(0.01, 1.0, enter)
-    currentY = -0.68
-    currentTilt = 0
-  } else if (progress < 0.75) {
-    // Float up toward mouth
-    const floatProgress = (progress - 0.2) / 0.55
-    currentY = THREE.MathUtils.lerp(-0.68, -0.32, floatProgress)
-    currentTilt = THREE.MathUtils.lerp(0, -0.28, floatProgress)
-    scale = 1.0
-  } else {
-    // Consumed into mouth
-    const consumeProgress = (progress - 0.75) / 0.25
-    currentY = -0.32
-    currentTilt = -0.28
-    scale = Math.max(0, 1.0 - consumeProgress)
-  }
+  const { currentY, currentTilt, scale } = (() => {
+    if (progress < 0.2) {
+      // Pop in on floor
+      const enter = progress / 0.2
+      return {
+        currentY: baseY,
+        currentTilt: 0,
+        scale: THREE.MathUtils.lerp(0.01, 1.0, enter),
+      }
+    } else if (progress < 0.75) {
+      // Float up toward mouth
+      const floatProgress = (progress - 0.2) / 0.55
+      return {
+        currentY: THREE.MathUtils.lerp(baseY, mouthY, floatProgress),
+        currentTilt: THREE.MathUtils.lerp(0, -0.28, floatProgress),
+        scale: 1.0,
+      }
+    } else {
+      // Consumed into mouth
+      const consumeProgress = (progress - 0.75) / 0.25
+      return {
+        currentY: mouthY,
+        currentTilt: -0.28,
+        scale: Math.max(0, 1.0 - consumeProgress),
+      }
+    }
+  })()
 
   useFrame(() => {
     if (!groupRef.current) return
