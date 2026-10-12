@@ -47,18 +47,34 @@ export class ProceduralAnimator {
   // Base bone rotations recorded at load time to preserve model posture
   private baseRotations: Map<THREE.Object3D, THREE.Euler> = new Map()
 
-  // Current smoothed transforms
-  private currentPos = new THREE.Vector3(0, -0.7, 0)
-  private currentScale = new THREE.Vector3(0.044, 0.044, 0.044)
-
-  // Target transforms
-  private targetPos = new THREE.Vector3(0, -0.7, 0)
-  private targetRot = new THREE.Euler(0, 0, 0)
-  private targetScale = new THREE.Vector3(0.044, 0.044, 0.044)
+  // Facial meshes and cached resting vertices
+  private eyeMesh: THREE.SkinnedMesh | null = null
+  private mouthMesh: THREE.SkinnedMesh | null = null
+  private initialEyeY: Float32Array | null = null
+  private initialMouthY: Float32Array | null = null
+  private initialMouthZ: Float32Array | null = null
 
   // Natural living timers
   private earTwitchTimer = 0
   private earTwitchActive = 0
+
+  // Natural blinking timers
+  private blinkTimer = 0
+  private blinkInterval = 3.8
+  private isBlinking = false
+  private blinkProgress = 0
+
+  // Natural mouth opening
+  private mouthOpenProgress = 0
+
+  // Local procedural offsets (normalized around (0, 0, 0) and unit scale (1, 1, 1))
+  private currentPos = new THREE.Vector3(0, 0, 0)
+  private currentScale = new THREE.Vector3(1, 1, 1)
+
+  // Target local offsets
+  private targetPos = new THREE.Vector3(0, 0, 0)
+  private targetRot = new THREE.Euler(0, 0, 0)
+  private targetScale = new THREE.Vector3(1, 1, 1)
 
   public bindModel(scene: THREE.Object3D): void {
     this.baseRotations.clear()
@@ -89,6 +105,30 @@ export class ProceduralAnimator {
       lLeg: findBone('LLeg_08'),
       rLeg: findBone('RLeg_014'),
     }
+
+    // Bind facial meshes (Object_9 = Eyes, Object_8 = Mouth)
+    scene.traverse((node) => {
+      const mesh = node as THREE.SkinnedMesh
+      if (mesh.isMesh) {
+        if (mesh.name === 'Object_9') {
+          this.eyeMesh = mesh
+          const pos = mesh.geometry.attributes.position
+          this.initialEyeY = new Float32Array(pos.count)
+          for (let i = 0; i < pos.count; i++) {
+            this.initialEyeY[i] = pos.getY(i)
+          }
+        } else if (mesh.name === 'Object_8') {
+          this.mouthMesh = mesh
+          const pos = mesh.geometry.attributes.position
+          this.initialMouthY = new Float32Array(pos.count)
+          this.initialMouthZ = new Float32Array(pos.count)
+          for (let i = 0; i < pos.count; i++) {
+            this.initialMouthY[i] = pos.getY(i)
+            this.initialMouthZ[i] = pos.getZ(i)
+          }
+        }
+      }
+    })
   }
 
   public update(
@@ -108,27 +148,25 @@ export class ProceduralAnimator {
       this.earTwitchActive -= delta
     }
 
-    // 2. Compute Root Transform targets by PetState
-    const baseScale = 0.044
-
+    // 2. Compute Root Transform targets by PetState (local offsets relative to parent)
     switch (state) {
       case 'IDLE': {
         const breath = Math.sin(time * 2.8) * 0.015
-        this.targetPos.set(0, -0.7 + breath, 0)
+        this.targetPos.set(0, breath, 0)
         this.targetRot.set(0, Math.sin(time * 0.8) * 0.06, 0)
         this.targetScale.set(
-          baseScale + breath * 0.0004,
-          baseScale - breath * 0.0004,
-          baseScale + breath * 0.0004
+          1 + breath * 0.01,
+          1 - breath * 0.01,
+          1 + breath * 0.01
         )
         break
       }
 
       case 'TALKING': {
         const talkPulse = Math.sin(time * 10) * 0.02
-        this.targetPos.set(0, -0.7 + talkPulse, 0)
+        this.targetPos.set(0, talkPulse, 0)
         this.targetRot.set(0, Math.sin(time * 3) * 0.08, 0)
-        const vScale = baseScale * (1 + voiceVolume * 0.12)
+        const vScale = 1 + voiceVolume * 0.12
         this.targetScale.set(vScale, vScale * (1 + talkPulse * 0.05), vScale)
         break
       }
@@ -136,82 +174,82 @@ export class ProceduralAnimator {
       case 'PETTING':
       case 'HAPPY': {
         const hop = Math.abs(Math.sin(time * 7)) * 0.05
-        this.targetPos.set(0, -0.7 + hop, 0)
+        this.targetPos.set(0, hop, 0)
         this.targetRot.set(0, 0, Math.sin(time * 7) * 0.06)
-        this.targetScale.set(baseScale * 1.05, baseScale * 0.96, baseScale * 1.05)
+        this.targetScale.set(1.05, 0.96, 1.05)
         break
       }
 
       case 'HIT': {
         // Instant recoil backwards and slight squash
-        this.targetPos.set(0, -0.66, -0.16)
+        this.targetPos.set(0, 0.04, -0.16)
         this.targetRot.set(-0.35, 0, 0.12)
-        this.targetScale.set(baseScale * 1.08, baseScale * 0.88, baseScale * 1.08)
+        this.targetScale.set(1.08, 0.88, 1.08)
         break
       }
 
       case 'FALLING': {
         // Tipping backwards toward the floor
-        this.targetPos.set(0, -0.82, -0.28)
+        this.targetPos.set(0, -0.12, -0.28)
         this.targetRot.set(-1.1, 0, 0.22)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'LYING': {
         // Flat on ground for 2.5 seconds
-        this.targetPos.set(0, -0.92, -0.32)
+        this.targetPos.set(0, -0.22, -0.32)
         this.targetRot.set(-1.54, 0, 0.18)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'RECOVERING': {
         // Shaking off dizziness, pushing back up
         const standProgress = Math.sin(time * 6) * 0.04
-        this.targetPos.set(0, -0.72 + standProgress, 0)
+        this.targetPos.set(0, -0.02 + standProgress, 0)
         this.targetRot.set(-0.1, Math.sin(time * 12) * 0.14, 0)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'EATING': {
         const chew = Math.sin(time * 12) * 0.02
-        this.targetPos.set(0, -0.76 + chew, 0.08)
+        this.targetPos.set(0, -0.06 + chew, 0.08)
         this.targetRot.set(0.24 + chew * 2, 0, 0)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'DRINKING': {
         const sip = Math.sin(time * 10) * 0.015
-        this.targetPos.set(0, -0.78 + sip, 0.08)
+        this.targetPos.set(0, -0.08 + sip, 0.08)
         this.targetRot.set(0.28 + sip * 2, 0, 0)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'SOCCER': {
         // Jump header thrust into air!
         const jump = Math.sin(time * 8) * 0.25
-        this.targetPos.set(0, -0.55 + Math.max(0, jump), 0.15)
+        this.targetPos.set(0, 0.15 + Math.max(0, jump), 0.15)
         this.targetRot.set(0.35, 0, 0)
-        this.targetScale.set(baseScale * 1.04, baseScale * 1.04, baseScale * 1.04)
+        this.targetScale.set(1.04, 1.04, 1.04)
         break
       }
 
       case 'ANGRY': {
-        this.targetPos.set(0, -0.7, 0)
+        this.targetPos.set(0, 0, 0)
         this.targetRot.set(0.18, Math.sin(time * 14) * 0.04, 0)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
 
       case 'SLEEPING': {
         const sleepBreath = Math.sin(time * 1.8) * 0.01
-        this.targetPos.set(0, -0.88 + sleepBreath, 0)
+        this.targetPos.set(0, -0.18 + sleepBreath, 0)
         this.targetRot.set(0.2, 0, 1.4)
-        this.targetScale.set(baseScale, baseScale, baseScale)
+        this.targetScale.set(1, 1, 1)
         break
       }
     }
@@ -232,6 +270,137 @@ export class ProceduralAnimator {
 
     // 4. Update Rigged Skeleton Bones
     this.updateBones(state, time, delta, voiceVolume)
+
+    // 5. Update Facial Procedural Animation (Eyes Blinking & Mouth Open/Sync)
+    this.updateFacialAnimation(state, time, delta, voiceVolume)
+  }
+
+  private updateFacialAnimation(
+    state: PetState,
+    time: number,
+    delta: number,
+    voiceVolume: number
+  ): void {
+    // --- BLINKING LOGIC (Object_9) ---
+    this.blinkTimer += delta
+    if (!this.isBlinking && this.blinkTimer >= this.blinkInterval) {
+      this.isBlinking = true
+      this.blinkProgress = 0
+      this.blinkTimer = 0
+      this.blinkInterval = 3.0 + Math.random() * 2.2 // Next blink in 3.0 - 5.2s
+    }
+
+    if (this.isBlinking) {
+      this.blinkProgress += delta / 0.16 // 160ms blink duration
+      if (this.blinkProgress >= 1) {
+        this.isBlinking = false
+        this.blinkProgress = 0
+      }
+    }
+
+    let blinkFactor = this.isBlinking ? Math.sin(this.blinkProgress * Math.PI) : 0
+
+    // Specific state overrides for eyes
+    if (state === 'PETTING' || state === 'HAPPY') {
+      blinkFactor = Math.max(blinkFactor, 0.7) // Happy squint
+    } else if (state === 'LYING' || state === 'SLEEPING') {
+      blinkFactor = 1.0 // Fully closed asleep
+    } else if (state === 'FALLING') {
+      blinkFactor = 0.85 // Dizzy closed
+    } else if (state === 'HIT') {
+      blinkFactor = 0.95 // Shock squeeze
+    } else if (state === 'RECOVERING') {
+      blinkFactor = Math.sin(time * 18) > 0 ? 0.9 : 0 // Rapid waking blinks
+    }
+
+    if (this.eyeMesh && this.initialEyeY) {
+      const pos = this.eyeMesh.geometry.attributes.position
+      const centerY = 38.86 // Midpoint of Pikachu's eyes
+      for (let i = 0; i < pos.count; i++) {
+        const origY = this.initialEyeY[i]
+        // Squashes eye vertices toward centerY (thin horizontal slit)
+        pos.setY(i, origY + (centerY - origY) * blinkFactor * 0.92)
+      }
+      pos.needsUpdate = true
+    }
+
+    // --- MOUTH LOGIC (Object_8) ---
+    let targetMouthOpen: number
+
+    switch (state) {
+      case 'TALKING': {
+        const speechWave = Math.max(0, Math.sin(time * 16) * 0.7 + Math.sin(time * 26) * 0.3)
+        targetMouthOpen = speechWave * (0.35 + Math.min(1, voiceVolume * 1.8) * 0.65)
+        break
+      }
+      case 'EATING': {
+        targetMouthOpen = Math.max(0, Math.sin(time * 13)) * 0.75
+        break
+      }
+      case 'DRINKING': {
+        targetMouthOpen = Math.max(0, Math.sin(time * 10)) * 0.6
+        break
+      }
+      case 'PETTING':
+      case 'HAPPY': {
+        targetMouthOpen = 0.22 // Pleasant little smile
+        break
+      }
+      case 'HIT': {
+        targetMouthOpen = 0.85 // Shock gasp
+        break
+      }
+      case 'SOCCER': {
+        targetMouthOpen = 0.65 // Determined header roar
+        break
+      }
+      case 'FALLING': {
+        targetMouthOpen = 0.4
+        break
+      }
+      case 'LYING':
+      case 'SLEEPING': {
+        targetMouthOpen = 0.05
+        break
+      }
+      case 'ANGRY': {
+        targetMouthOpen = 0.3
+        break
+      }
+      case 'RECOVERING': {
+        targetMouthOpen = Math.max(0, Math.sin(time * 8)) * 0.3
+        break
+      }
+      default: {
+        targetMouthOpen = 0
+        break
+      }
+    }
+
+    // Smooth mouth interpolation
+    this.mouthOpenProgress = THREE.MathUtils.lerp(
+      this.mouthOpenProgress,
+      targetMouthOpen,
+      1 - Math.exp(-22 * delta)
+    )
+
+    if (this.mouthMesh && this.initialMouthY && this.initialMouthZ) {
+      const pos = this.mouthMesh.geometry.attributes.position
+      for (let i = 0; i < pos.count; i++) {
+        const origY = this.initialMouthY[i]
+        const origZ = this.initialMouthZ[i]
+        if (origY <= 33.85) {
+          // Lower lip & jaw drop down and slightly inwards
+          const drop = this.mouthOpenProgress * (33.85 - origY + 0.8) * 0.65
+          pos.setY(i, origY - drop)
+          pos.setZ(i, origZ - this.mouthOpenProgress * 0.35)
+        } else {
+          // Upper lip lifts slightly
+          pos.setY(i, origY + this.mouthOpenProgress * 0.2)
+        }
+      }
+      pos.needsUpdate = true
+    }
   }
 
   private updateBones(

@@ -236,6 +236,7 @@ export function App() {
       />
 
       <PetSceneContainer
+        mode={mode}
         state={petState}
         animator={proceduralAnimator}
         voiceVolume={voiceVolume}

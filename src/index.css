@@ -369,3 +369,126 @@ body {
   0%, 100% { border-color: rgba(255, 255, 255, 0.15); }
   50% { border-color: rgba(239, 68, 68, 0.5); }
 }
+
+/* AR Overlay & Guidance */
+.ar-overlay-root {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  z-index: 15;
+}
+
+.ar-guidance-banner {
+  position: absolute;
+  top: calc(var(--safe-top) + 60px);
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+  background: rgba(15, 23, 42, 0.88);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(236, 72, 153, 0.35);
+  box-shadow: 0 4px 20px rgba(0, 0, 0, 0.45);
+  border-radius: 9999px;
+  padding: 8px 14px;
+  max-width: 90vw;
+  pointer-events: auto;
+  animation: fadeInDown 0.3s ease-out;
+}
+
+.ar-guidance-content {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.ar-guidance-icon {
+  font-size: 15px;
+}
+
+.ar-guidance-text {
+  font-size: 12px;
+  font-weight: 600;
+  color: var(--text-primary);
+  white-space: nowrap;
+}
+
+.ar-banner-close {
+  background: none;
+  border: none;
+  color: var(--text-muted);
+  font-size: 12px;
+  cursor: pointer;
+  padding: 2px 4px;
+  border-radius: 50%;
+  transition: color 0.15s ease;
+}
+
+.ar-banner-close:active {
+  color: var(--text-primary);
+}
+
+/* AR Floating Quick Dock */
+.ar-quick-dock {
+  position: absolute;
+  right: calc(var(--safe-right) + 10px);
+  top: 48%;
+  transform: translateY(-50%);
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  pointer-events: auto;
+  z-index: 15;
+}
+
+.ar-dock-pill {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: 14px;
+  background: rgba(15, 23, 42, 0.85);
+  backdrop-filter: blur(14px);
+  -webkit-backdrop-filter: blur(14px);
+  border: 1px solid rgba(255, 255, 255, 0.14);
+  color: var(--text-primary);
+  cursor: pointer;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  transition: transform 0.12s ease, background 0.15s ease, border-color 0.15s ease;
+}
+
+.ar-dock-pill:active {
+  transform: scale(0.9);
+  background: rgba(236, 72, 153, 0.25);
+  border-color: rgba(236, 72, 153, 0.5);
+}
+
+.ar-pill-icon {
+  font-size: 16px;
+  line-height: 1;
+}
+
+.ar-pill-label {
+  font-size: 8px;
+  font-weight: 700;
+  text-transform: uppercase;
+  color: var(--text-secondary);
+  margin-top: 2px;
+  letter-spacing: 0.3px;
+}
+
+@keyframes fadeInDown {
+  from {
+    opacity: 0;
+    transform: translate(-50%, -10px);
+  }
+  to {
+    opacity: 1;
+    transform: translate(-50%, 0);
+  }
+}

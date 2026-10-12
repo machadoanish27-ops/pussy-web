@@ -2,6 +2,7 @@ import { ContactShadows } from '@react-three/drei'
 import { PikachuModel } from '../components/pet/PikachuModel.tsx'
 import { FoodProps } from '../components/pet/FoodProps.tsx'
 import { SoccerFieldProps } from '../components/pet/SoccerFieldProps.tsx'
+import { PlacementReticle } from '../components/ar/PlacementReticle.tsx'
 import type { PetState, FoodType } from '../types'
 import type { ProceduralAnimator } from '../systems/pet/ProceduralAnimator.ts'
 
@@ -12,7 +13,13 @@ interface PetSceneProps {
   food: FoodType
   foodProgress: number
   soccerActive: boolean
+  petPosition: [number, number, number]
+  petRotationY: number
+  petScale: number
+  isAR: boolean
+  isPlaced: boolean
   onTapPet?: () => void
+  onPlaceReticle?: () => void
   onScoreSoccerGoal?: () => void
   onTriggerHeader?: () => void
 }
@@ -21,7 +28,8 @@ interface PetSceneProps {
  * PetScene
  *
  * Staging 3D environment coordinating Pikachu, Food Props,
- * Soccer Mini-Game Arena, lighting, and soft ground contact shadows.
+ * Soccer Mini-Game Arena, AR Surface Placement Reticle, lighting,
+ * and ground contact shadows anchored to Pikachu.
  */
 export const PetScene = ({
   state,
@@ -30,18 +38,24 @@ export const PetScene = ({
   food,
   foodProgress,
   soccerActive,
+  petPosition,
+  petRotationY,
+  petScale,
+  isAR,
+  isPlaced,
   onTapPet,
+  onPlaceReticle,
   onScoreSoccerGoal,
   onTriggerHeader,
 }: PetSceneProps) => {
   return (
     <>
       {/* Balanced 3-Point Lighting */}
-      <ambientLight intensity={1.1} color="#ffffff" />
+      <ambientLight intensity={isAR ? 1.3 : 1.1} color="#ffffff" />
 
       <directionalLight
         position={[2.5, 4.0, 3.0]}
-        intensity={1.7}
+        intensity={isAR ? 1.8 : 1.7}
         color="#fffbf0"
         castShadow
         shadow-mapSize-width={1024}
@@ -55,16 +69,31 @@ export const PetScene = ({
         color="#c7d2fe"
       />
 
+      {/* AR Surface Placement Reticle */}
+      <PlacementReticle
+        position={petPosition}
+        visible={isAR && !isPlaced}
+        onPlace={onPlaceReticle}
+      />
+
       {/* 3D Pikachu Virtual Pet */}
       <PikachuModel
         state={state}
         animator={animator}
         voiceVolume={voiceVolume}
+        position={petPosition}
+        rotationY={petRotationY}
+        scale={petScale}
         onTap={onTapPet}
       />
 
       {/* Interactive 3D Food Props (Milk Bowl / Fish) */}
-      <FoodProps food={food} progress={foodProgress} />
+      <FoodProps
+        food={food}
+        progress={foodProgress}
+        petPosition={petPosition}
+        petRotationY={petRotationY}
+      />
 
       {/* 3D Head Soccer Arena & Ball */}
       <SoccerFieldProps
@@ -73,11 +102,11 @@ export const PetScene = ({
         onTriggerHeader={() => onTriggerHeader?.()}
       />
 
-      {/* Ground Contact Shadow */}
+      {/* Ground Contact Shadow (tracks Pikachu's world position and size) */}
       <ContactShadows
-        position={[0, -0.69, 0]}
-        opacity={0.65}
-        scale={3.4}
+        position={[petPosition[0], -0.689, petPosition[2]]}
+        opacity={isAR ? 0.75 : 0.65}
+        scale={Math.max(1.5, 3.4 * (petScale / 0.034))}
         blur={1.4}
         far={1.5}
         color="#030712"

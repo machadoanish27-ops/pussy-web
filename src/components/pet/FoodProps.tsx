@@ -6,13 +6,21 @@ import type { FoodType } from '../../types'
 interface FoodPropsProps {
   food: FoodType
   progress: number // 0 (just served) to 1 (fully consumed)
+  petPosition?: [number, number, number]
+  petRotationY?: number
 }
 
 /**
  * 3D Food Props (Milk Bowl & Stylized Fish)
- * Appears dynamically in front of Pikachu during feeding interactions.
+ * Appears dynamically in front of Pikachu during feeding interactions,
+ * anchored to Pikachu's current world placement and rotation.
  */
-export const FoodProps = ({ food, progress }: FoodPropsProps) => {
+export const FoodProps = ({
+  food,
+  progress,
+  petPosition = [0, -0.69, 0],
+  petRotationY = 0,
+}: FoodPropsProps) => {
   const groupRef = useRef<THREE.Group>(null)
 
   useFrame(() => {
@@ -24,8 +32,16 @@ export const FoodProps = ({ food, progress }: FoodPropsProps) => {
 
   if (!food) return null
 
+  // Compute position 0.42 units in front of Pikachu based on rotation
+  const foodX = petPosition[0] + Math.sin(petRotationY) * 0.42
+  const foodZ = petPosition[2] + Math.cos(petRotationY) * 0.42
+
   return (
-    <group ref={groupRef} position={[0, -0.68, 0.52]}>
+    <group
+      ref={groupRef}
+      position={[foodX, -0.68, foodZ]}
+      rotation={[0, petRotationY, 0]}
+    >
       {food === 'milk' ? (
         // Milk Bowl
         <group>

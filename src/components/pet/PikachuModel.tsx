@@ -9,6 +9,9 @@ interface PikachuModelProps {
   state: PetState
   animator: ProceduralAnimator
   voiceVolume?: number
+  position?: [number, number, number]
+  rotationY?: number
+  scale?: number
   onTap?: () => void
 }
 
@@ -16,14 +19,17 @@ interface PikachuModelProps {
  * PikachuModel
  *
  * Renders the 3D Pikachu GLB model.
- * Connects the 49-bone skeleton and root group to the ProceduralAnimator,
- * driving living idle behavior, talking reactions, happy petting,
- * and the complete P0 Hit -> Fall -> Lie -> Stand -> Recover cycle.
+ * Outer group applies world transform (AR surface placement, drag position, rotation, scale).
+ * Inner group is driven by the ProceduralAnimator (living idle, facial blinking, mouth sync,
+ * and P0 Hit -> Fall -> Lie -> Stand -> Recover sequence).
  */
 export const PikachuModel = ({
   state,
   animator,
   voiceVolume = 0,
+  position = [0, -0.69, 0],
+  rotationY = 0,
+  scale = 0.034,
   onTap,
 }: PikachuModelProps) => {
   const rootGroupRef = useRef<THREE.Group>(null)
@@ -57,14 +63,19 @@ export const PikachuModel = ({
 
   return (
     <group
-      ref={rootGroupRef}
-      position={[0, -0.7, 0]}
-      onPointerDown={(e) => {
-        e.stopPropagation()
-        onTap?.()
-      }}
+      position={position}
+      rotation={[0, rotationY, 0]}
+      scale={[scale, scale, scale]}
     >
-      <primitive object={scene} />
+      <group
+        ref={rootGroupRef}
+        onPointerDown={(e) => {
+          e.stopPropagation()
+          onTap?.()
+        }}
+      >
+        <primitive object={scene} />
+      </group>
     </group>
   )
 }
