@@ -424,23 +424,43 @@ import('../src/systems/stats/PetStatsManager.ts').then(async ({ PetStatsManager 
   console.log('  ✅ 7.1 - 7.7 Continuous contact petting lifecycle & recurring vocal loop verified.')
 
   // =========================================================================
-  // TEST 8: SOUNDEFFECTS SYNTHESIZED VOCAL POOL & IOS SAFETY
+  // TEST 8: SOUNDEFFECTS PIKACHU PET VOCAL ASSET & NON-OVERLAPPING AUDIO
   // =========================================================================
-  console.log('\nTest 8: SoundEffects Vocal Pool & iOS Safari AudioContext Safety')
+  console.log('\nTest 8: SoundEffects Pikachu Pet Vocal Asset & Non-Overlapping Audio Safety')
   const { SoundEffects } = await import('../src/systems/audio/SoundEffects.ts')
+  const fs = await import('node:fs')
 
-  assert.equal(typeof SoundEffects.ensureAudioUnlocked, 'function', '8.1 ensureAudioUnlocked exists')
-  assert.equal(typeof SoundEffects.playPettingPika, 'function', '8.2 playPettingPika exists')
-  assert.equal(typeof SoundEffects.playPettingPikaSingle, 'function', '8.3 playPettingPikaSingle exists')
-  assert.equal(typeof SoundEffects.playPettingPikachu, 'function', '8.4 playPettingPikachu exists')
-  assert.equal(typeof SoundEffects.playRandomPetVocal, 'function', '8.5 playRandomPetVocal exists')
+  // 8.1 Asset verification
+  const assetPath = 'public/audio/pikachu-pet-vocal.mp3'
+  assert.ok(fs.existsSync(assetPath), '8.1 Audio asset public/audio/pikachu-pet-vocal.mp3 must exist')
+  const statsAudio = fs.statSync(assetPath)
+  assert.ok(statsAudio.size > 10000, '8.1 Audio asset must be non-empty (> 10KB)')
+  console.log(`  ✅ 8.1 Verified pikachu-pet-vocal.mp3 asset exists (${statsAudio.size} bytes).`)
 
-  // Verify non-throw execution of synthesis methods
-  SoundEffects.playPettingPika(1.0)
-  SoundEffects.playPettingPikaSingle(1.0)
-  SoundEffects.playPettingPikachu(1.0)
+  // 8.2 API method existence
+  assert.equal(typeof SoundEffects.ensureAudioUnlocked, 'function', '8.2 ensureAudioUnlocked exists')
+  assert.equal(typeof SoundEffects.playPetVocal, 'function', '8.3 playPetVocal exists')
+  assert.equal(typeof SoundEffects.stopPetVocal, 'function', '8.4 stopPetVocal exists')
+  assert.equal(typeof SoundEffects.isPetVocalPlaying, 'function', '8.5 isPetVocalPlaying exists')
+  assert.equal(typeof SoundEffects.playPettingPika, 'function', '8.6 playPettingPika exists')
+  assert.equal(typeof SoundEffects.playPettingPikaSingle, 'function', '8.7 playPettingPikaSingle exists')
+  assert.equal(typeof SoundEffects.playPettingPikachu, 'function', '8.8 playPettingPikachu exists')
+  assert.equal(typeof SoundEffects.playRandomPetVocal, 'function', '8.9 playRandomPetVocal exists')
+
+  // 8.3 Non-overlapping verification & safe node execution
+  assert.equal(SoundEffects.isPetVocalPlaying(), false, 'Vocal should not be playing initially')
+  SoundEffects.playPetVocal()
+  assert.equal(typeof SoundEffects.isPetVocalPlaying(), 'boolean', 'isPetVocalPlaying returns boolean')
+  SoundEffects.stopPetVocal()
+  assert.equal(SoundEffects.isPetVocalPlaying(), false, 'stopPetVocal cleanly resets playing flag')
+
+  // Verify non-throw execution of pet vocal caller methods in Node
+  SoundEffects.playPettingPika()
+  SoundEffects.playPettingPikaSingle()
+  SoundEffects.playPettingPikachu()
   SoundEffects.playRandomPetVocal()
-  console.log('  ✅ 8.1 - 8.5 Synthesized vocal pool methods callable and iOS audio unlock verified.')
+  SoundEffects.stopPetVocal()
+  console.log('  ✅ 8.2 - 8.9 Asset playback methods, non-overlapping controls & iOS audio unlock verified.')
 
   // =========================================================================
   // TEST 9: VOICE REPEATER SPEECH DETECTION, PAUSE TOLERANCE & 20S HARD CAP

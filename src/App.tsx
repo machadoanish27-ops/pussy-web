@@ -287,12 +287,20 @@ export function App() {
         voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
       if (isVoiceActive) return
 
-      // Play random synthesized vocal reaction ("Pika Pika", "Pika!", "Pikachu!")
-      SoundEffects.playRandomPetVocal()
+      // Prevent overlapping audio: if previous vocal is still playing, retry after short interval
+      if (SoundEffects.isPetVocalPlaying()) {
+        petVocalTimerRef.current = window.setTimeout(() => {
+          triggerPetVocalRef.current()
+        }, 1500)
+        return
+      }
+
+      // Play the official uploaded Pikachu petting vocal asset (/audio/pikachu-pet-vocal.mp3)
+      SoundEffects.playPetVocal()
       spawnDamageEffect('HEART_FLOAT', 1500)
 
-      // Schedule next vocal natural interval (3 to 6.5s) while still petting
-      const nextInterval = 3200 + Math.random() * 3300
+      // Schedule next vocal natural interval (3 to 7s with variation) while still petting
+      const nextInterval = 3200 + Math.random() * 3500 // 3.2s to 6.7s
       petVocalTimerRef.current = window.setTimeout(() => {
         triggerPetVocalRef.current()
       }, nextInterval)
@@ -319,22 +327,22 @@ export function App() {
     }
 
     // Schedule first petting vocal:
-    // Short ~550ms delay ensures a fast tap (< 280ms) won't trigger the vocal,
-    // but continued petting reliably hears "Pika Pika!" early on.
+    // Natural ~350ms delay after contact, then play uploaded asset and start recurring loop
     const isVoiceActive =
       voiceStatus === 'recording' || voiceStatus === 'speaking' || voiceStatus === 'processing'
     if (!isVoiceActive) {
       petVocalTimerRef.current = window.setTimeout(() => {
         if (!isPettingActiveRef.current) return
-        SoundEffects.playPettingPika()
+        if (stateMachine.isLocked()) return
+        SoundEffects.playPetVocal()
         spawnDamageEffect('HEART_FLOAT', 1500)
 
-        // Schedule subsequent vocals in continuous loop (3 - 6.5s)
-        const nextInterval = 3500 + Math.random() * 3000
+        // Schedule subsequent vocals in continuous loop (3 - 7s)
+        const nextInterval = 3500 + Math.random() * 3200 // 3.5s to 6.7s
         petVocalTimerRef.current = window.setTimeout(() => {
           triggerPetVocalRef.current()
         }, nextInterval)
-      }, 550)
+      }, 350)
     }
   }, [stateMachine, statsManager, spawnDamageEffect, voiceStatus])
 

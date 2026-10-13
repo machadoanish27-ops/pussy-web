@@ -7,12 +7,68 @@
 class SoundEffectsEngine {
   private ctx: AudioContext | null = null
   private muted: boolean = false
+  private petVocalAudio: HTMLAudioElement | null = null
+  private petVocalBuffer: AudioBuffer | null = null
+  private petVocalSource: AudioBufferSourceNode | null = null
+  private isPetVocalPlayingFlag: boolean = false
+  private isFetchingPetVocalBuffer: boolean = false
 
   constructor() {
     // AudioContext will be initialized or resumed on first user interaction
     const savedMute = localStorage.getItem('pussy_web_muted')
     if (savedMute !== null) {
       this.muted = savedMute === 'true'
+    }
+    if (typeof window !== 'undefined') {
+      this.initPetAudio()
+    }
+  }
+
+  private initPetAudio(): void {
+    if (typeof window === 'undefined') return
+
+    if (!this.petVocalAudio && typeof Audio !== 'undefined') {
+      try {
+        this.petVocalAudio = new Audio('/audio/pikachu-pet-vocal.mp3')
+        this.petVocalAudio.preload = 'auto'
+        this.petVocalAudio.muted = this.muted
+        this.petVocalAudio.volume = 1.0
+
+        this.petVocalAudio.addEventListener('ended', () => {
+          this.isPetVocalPlayingFlag = false
+        })
+        this.petVocalAudio.addEventListener('pause', () => {
+          this.isPetVocalPlayingFlag = false
+        })
+      } catch {
+        // Safe fallback in environments without Audio constructor
+      }
+    }
+
+    if (this.ctx && !this.petVocalBuffer && !this.isFetchingPetVocalBuffer && typeof fetch === 'function') {
+      this.isFetchingPetVocalBuffer = true
+      fetch('/audio/pikachu-pet-vocal.mp3')
+        .then((res) => {
+          if (!res.ok) throw new Error(`HTTP ${res.status}`)
+          return res.arrayBuffer()
+        })
+        .then((buf) => {
+          if (this.ctx) {
+            return this.ctx.decodeAudioData(buf)
+          }
+          return null
+        })
+        .then((decoded) => {
+          if (decoded) {
+            this.petVocalBuffer = decoded
+          }
+        })
+        .catch(() => {
+          // Fallback remains petVocalAudio HTML5 audio
+        })
+        .finally(() => {
+          this.isFetchingPetVocalBuffer = false
+        })
     }
   }
 
@@ -27,6 +83,19 @@ class SoundEffectsEngine {
     if (this.ctx && this.ctx.state === 'suspended') {
       void this.ctx.resume()
     }
+
+    // Preload & prime HTML5 audio for Pikachu petting voice on user gesture
+    if (typeof window !== 'undefined') {
+      this.initPetAudio()
+      if (this.petVocalAudio) {
+        try {
+          this.petVocalAudio.load()
+        } catch {
+          // Ignore
+        }
+      }
+    }
+
     return this.ctx
   }
 
@@ -41,6 +110,12 @@ class SoundEffectsEngine {
   public setMuted(muted: boolean): void {
     this.muted = muted
     localStorage.setItem('pussy_web_muted', String(muted))
+    if (this.petVocalAudio) {
+      this.petVocalAudio.muted = muted
+    }
+    if (muted) {
+      this.stopPetVocal()
+    }
   }
 
   public toggleMute(): boolean {
@@ -323,196 +398,131 @@ class SoundEffectsEngine {
   }
 
   /**
-   * Synthesized enthusiastic double chirp: "Pi-ka... Pi-ka!"
-   * Scheduled entirely via Web Audio ctx.currentTime for iOS Safari reliability.
+   * Enthusiastic double chirp / idle sound.
    */
   public playPikaPika(): void {
-    this.playPettingPika()
+    this.playPika()
   }
 
   /**
-   * Synthesized single cute cartoon vocal: "Pi-ka!"
-   * Clearly distinguishable syllables on phone speakers.
+   * Returns true if Pikachu's petting vocal is currently playing.
    */
-  public playPettingPikaSingle(pitchFactor: number = 1.0): void {
-    const ctx = this.ensureAudioUnlocked()
-    if (!ctx) return
-    const now = ctx.currentTime
-
-    // Syllable: "Pi-"
-    const osc1 = ctx.createOscillator()
-    const gain1 = ctx.createGain()
-    osc1.type = 'triangle'
-    osc1.frequency.setValueAtTime(880 * pitchFactor, now)
-    osc1.frequency.exponentialRampToValueAtTime(1400 * pitchFactor, now + 0.08)
-    gain1.gain.setValueAtTime(0.40, now)
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
-    osc1.connect(gain1)
-    gain1.connect(ctx.destination)
-    osc1.start(now)
-    osc1.stop(now + 0.08)
-
-    // Syllable: "-ka!"
-    const t2 = now + 0.085
-    const osc2 = ctx.createOscillator()
-    const gain2 = ctx.createGain()
-    osc2.type = 'sine'
-    osc2.frequency.setValueAtTime(850 * pitchFactor, t2)
-    osc2.frequency.exponentialRampToValueAtTime(500 * pitchFactor, t2 + 0.12)
-    gain2.gain.setValueAtTime(0.44, t2)
-    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.12)
-    osc2.connect(gain2)
-    gain2.connect(ctx.destination)
-    osc2.start(t2)
-    osc2.stop(t2 + 0.12)
-  }
-
-  /**
-   * Synthesized three-syllable cartoon vocal: "Pi-ka-chu!"
-   * Syllable 1: "Pi-" (high sweep)
-   * Syllable 2: "-ka-" (mid accent)
-   * Syllable 3: "-chu!" (sweet high flutter)
-   */
-  public playPettingPikachu(pitchFactor: number = 1.0): void {
-    const ctx = this.ensureAudioUnlocked()
-    if (!ctx) return
-    const now = ctx.currentTime
-
-    // 1. "Pi-"
-    const osc1 = ctx.createOscillator()
-    const gain1 = ctx.createGain()
-    osc1.type = 'triangle'
-    osc1.frequency.setValueAtTime(860 * pitchFactor, now)
-    osc1.frequency.exponentialRampToValueAtTime(1360 * pitchFactor, now + 0.075)
-    gain1.gain.setValueAtTime(0.38, now)
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.075)
-    osc1.connect(gain1)
-    gain1.connect(ctx.destination)
-    osc1.start(now)
-    osc1.stop(now + 0.075)
-
-    // 2. "-ka-"
-    const t2 = now + 0.08
-    const osc2 = ctx.createOscillator()
-    const gain2 = ctx.createGain()
-    osc2.type = 'sine'
-    osc2.frequency.setValueAtTime(820 * pitchFactor, t2)
-    osc2.frequency.exponentialRampToValueAtTime(540 * pitchFactor, t2 + 0.085)
-    gain2.gain.setValueAtTime(0.40, t2)
-    gain2.gain.exponentialRampToValueAtTime(0.001, t2 + 0.085)
-    osc2.connect(gain2)
-    gain2.connect(ctx.destination)
-    osc2.start(t2)
-    osc2.stop(t2 + 0.085)
-
-    // 3. "-chu!"
-    const t3 = now + 0.175
-    const osc3 = ctx.createOscillator()
-    const gain3 = ctx.createGain()
-    osc3.type = 'triangle'
-    osc3.frequency.setValueAtTime(980 * pitchFactor, t3)
-    osc3.frequency.exponentialRampToValueAtTime(1520 * pitchFactor, t3 + 0.07)
-    osc3.frequency.exponentialRampToValueAtTime(880 * pitchFactor, t3 + 0.16)
-    gain3.gain.setValueAtTime(0.42, t3)
-    gain3.gain.exponentialRampToValueAtTime(0.001, t3 + 0.16)
-    osc3.connect(gain3)
-    gain3.connect(ctx.destination)
-    osc3.start(t3)
-    osc3.stop(t3 + 0.16)
-  }
-
-  /**
-   * Synthesized sweet petting vocal reaction: "Pi-ka... Pi-ka!"
-   * Guaranteed clear, audible cartoon syllables on iPhone speakers.
-   * Syllable 1 ("Pi-ka") -> short pause (0.04s) -> Syllable 2 ("Pi-ka!").
-   */
-  public playPettingPika(pitchFactor: number = 1.0): void {
-    const ctx = this.ensureAudioUnlocked()
-    if (!ctx) return
-    const now = ctx.currentTime
-
-    // Distinct two-syllable "Pi-ka... Pi-ka!" structure
-    // Syllable 1: "Pi-"
-    const osc1 = ctx.createOscillator()
-    const gain1 = ctx.createGain()
-    osc1.type = 'triangle'
-    osc1.frequency.setValueAtTime(860 * pitchFactor, now)
-    osc1.frequency.exponentialRampToValueAtTime(1380 * pitchFactor, now + 0.08)
-    gain1.gain.setValueAtTime(0.38, now)
-    gain1.gain.exponentialRampToValueAtTime(0.001, now + 0.08)
-    osc1.connect(gain1)
-    gain1.connect(ctx.destination)
-    osc1.start(now)
-    osc1.stop(now + 0.08)
-
-    // Syllable 1: "-ka"
-    const t1b = now + 0.085
-    const osc1b = ctx.createOscillator()
-    const gain1b = ctx.createGain()
-    osc1b.type = 'sine'
-    osc1b.frequency.setValueAtTime(820 * pitchFactor, t1b)
-    osc1b.frequency.exponentialRampToValueAtTime(490 * pitchFactor, t1b + 0.11)
-    gain1b.gain.setValueAtTime(0.42, t1b)
-    gain1b.gain.exponentialRampToValueAtTime(0.001, t1b + 0.11)
-    osc1b.connect(gain1b)
-    gain1b.connect(ctx.destination)
-    osc1b.start(t1b)
-    osc1b.stop(t1b + 0.11)
-
-    // Short pause: 0.04s (between t1b + 0.11 = now + 0.195 and now + 0.235)
-
-    // Syllable 2: "Pi-"
-    const t2a = now + 0.235
-    const osc2a = ctx.createOscillator()
-    const gain2a = ctx.createGain()
-    osc2a.type = 'triangle'
-    osc2a.frequency.setValueAtTime(940 * pitchFactor, t2a)
-    osc2a.frequency.exponentialRampToValueAtTime(1480 * pitchFactor, t2a + 0.08)
-    gain2a.gain.setValueAtTime(0.40, t2a)
-    gain2a.gain.exponentialRampToValueAtTime(0.001, t2a + 0.08)
-    osc2a.connect(gain2a)
-    gain2a.connect(ctx.destination)
-    osc2a.start(t2a)
-    osc2a.stop(t2a + 0.08)
-
-    // Syllable 2: "-ka!"
-    const t2b = now + 0.32
-    const osc2b = ctx.createOscillator()
-    const gain2b = ctx.createGain()
-    osc2b.type = 'sine'
-    osc2b.frequency.setValueAtTime(880 * pitchFactor, t2b)
-    osc2b.frequency.exponentialRampToValueAtTime(510 * pitchFactor, t2b + 0.14)
-    gain2b.gain.setValueAtTime(0.44, t2b)
-    gain2b.gain.exponentialRampToValueAtTime(0.001, t2b + 0.14)
-    osc2b.connect(gain2b)
-    gain2b.connect(ctx.destination)
-    osc2b.start(t2b)
-    osc2b.stop(t2b + 0.14)
-  }
-
-  /**
-   * Randomly triggers one vocal reaction from the synthesized pet vocal pool:
-   * "Pika Pika", "Pika!", "Pikachu!", "Pika Pika!"
-   * with natural organic pitch and timing nuances.
-   */
-  public playRandomPetVocal(): void {
-    const pitch = 0.96 + Math.random() * 0.1 // 0.96 to 1.06
-    const choice = Math.floor(Math.random() * 4)
-    switch (choice) {
-      case 0:
-        this.playPettingPika(pitch)
-        break
-      case 1:
-        this.playPettingPikaSingle(pitch * 1.02)
-        break
-      case 2:
-        this.playPettingPikachu(pitch)
-        break
-      case 3:
-      default:
-        this.playPettingPika(pitch * 1.04)
-        break
+  public isPetVocalPlaying(): boolean {
+    if (this.isPetVocalPlayingFlag) return true
+    if (
+      this.petVocalAudio &&
+      !this.petVocalAudio.paused &&
+      !this.petVocalAudio.ended &&
+      this.petVocalAudio.currentTime > 0
+    ) {
+      return true
     }
+    return false
+  }
+
+  /**
+   * Stops any currently playing petting vocal to prevent overlapping audio.
+   */
+  public stopPetVocal(): void {
+    this.isPetVocalPlayingFlag = false
+
+    if (this.petVocalSource) {
+      try {
+        this.petVocalSource.stop()
+        this.petVocalSource.disconnect()
+      } catch {
+        // Safe ignore
+      }
+      this.petVocalSource = null
+    }
+
+    if (this.petVocalAudio) {
+      try {
+        this.petVocalAudio.pause()
+        this.petVocalAudio.currentTime = 0
+      } catch {
+        // Safe ignore
+      }
+    }
+  }
+
+  /**
+   * Plays the official uploaded Pikachu petting vocal asset (/audio/pikachu-pet-vocal.mp3).
+   * Checks for overlapping audio to ensure clean, non-overlapping playback.
+   */
+  public playPetVocal(): void {
+    if (this.muted) return
+
+    // Never play multiple copies simultaneously: stop previous if active
+    this.stopPetVocal()
+
+    this.isPetVocalPlayingFlag = true
+
+    // 1. Web Audio decoded buffer path (instant 0ms response, immune to iOS background throttling)
+    if (this.ctx && this.petVocalBuffer && this.ctx.state === 'running') {
+      try {
+        const source = this.ctx.createBufferSource()
+        source.buffer = this.petVocalBuffer
+
+        const gain = this.ctx.createGain()
+        gain.gain.value = 1.0
+
+        source.connect(gain)
+        gain.connect(this.ctx.destination)
+
+        this.petVocalSource = source
+
+        source.onended = () => {
+          if (this.petVocalSource === source) {
+            this.petVocalSource = null
+            this.isPetVocalPlayingFlag = false
+          }
+        }
+
+        source.start(0)
+        return
+      } catch (err) {
+        console.warn('Web Audio pet vocal play error, using HTML5 Audio fallback:', err)
+      }
+    }
+
+    // 2. HTML5 Audio path (and fallback)
+    if (typeof window !== 'undefined') {
+      this.initPetAudio()
+      if (this.petVocalAudio) {
+        try {
+          this.petVocalAudio.muted = this.muted
+          this.petVocalAudio.currentTime = 0
+          const playPromise = this.petVocalAudio.play()
+          if (playPromise !== undefined) {
+            playPromise.catch(() => {
+              this.isPetVocalPlayingFlag = false
+            })
+          }
+        } catch {
+          this.isPetVocalPlayingFlag = false
+        }
+      }
+    }
+  }
+
+  /**
+   * Official petting vocal reactions: uses the provided Pikachu audio asset.
+   */
+  public playPettingPika(): void {
+    this.playPetVocal()
+  }
+
+  public playPettingPikaSingle(): void {
+    this.playPetVocal()
+  }
+
+  public playPettingPikachu(): void {
+    this.playPetVocal()
+  }
+
+  public playRandomPetVocal(): void {
+    this.playPetVocal()
   }
 
   /** Curious high-pitched squeak / chirp */
