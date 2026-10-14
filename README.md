@@ -102,18 +102,29 @@ It combines:
 
 # 📸 Screenshots
 
-### 🐟 Normal Mode — Feeding
+> **Curated gallery:** the selected screenshots below were visually reviewed for the README and **no visible human faces are present**.
+
+### 🐾 Normal Virtual Pet
 
 <p align="center">
-  <img src="docs/screenshots/01-normal-fish.jpg" width="32%" alt="PUSSY Web normal mode with fish feeding">
-  <img src="docs/screenshots/02-normal-milk.jpg" width="32%" alt="PUSSY Web normal mode with milk feeding">
+  <img src="docs/screenshots/01-normal-idle.jpg" width="30%" alt="PUSSY Web normal idle mode">
+  <img src="docs/screenshots/02-normal-milk.jpg" width="30%" alt="PUSSY Web milk feeding">
+  <img src="docs/screenshots/03-normal-fish.jpg" width="30%" alt="PUSSY Web fish feeding">
 </p>
 
 ### 📷 Camera AR
 
 <p align="center">
-  <img src="docs/screenshots/03-ar-placement.jpg" width="32%" alt="PUSSY Web AR placement">
-  <img src="docs/screenshots/04-ar-interaction.jpg" width="32%" alt="PUSSY Web AR interaction">
+  <img src="docs/screenshots/04-ar-placement.jpg" width="30%" alt="PUSSY Web camera AR placement">
+  <img src="docs/screenshots/05-ar-talking.jpg" width="30%" alt="PUSSY Web AR talking and voice replay">
+  <img src="docs/screenshots/06-ar-listening.jpg" width="30%" alt="PUSSY Web AR listening mode">
+</p>
+
+### ⚽ AR Mini-Game + Feeding
+
+<p align="center">
+  <img src="docs/screenshots/07-ar-soccer.jpg" width="30%" alt="PUSSY Web AR soccer mini-game">
+  <img src="docs/screenshots/08-ar-eating.jpg" width="30%" alt="PUSSY Web AR fish feeding">
 </p>
 
 ---
